@@ -34,7 +34,7 @@ typedef struct Node
 	struct Node* next;
 } Node;
 
-cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* D, uint16_t* X);
+cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* D);
 
 __host__ uint16_t checkWord(char* s);
 
@@ -50,12 +50,9 @@ __host__ void PrintX(uint16_t* X, uint16_t height, uint16_t width, char* s2);
 
 __host__ Node* RetrievePath(uint16_t* D, uint16_t height, uint16_t width, char* s1, char* s2);
 
-__global__ void addKernel(int* c, const int* a, const int* b)
-{
-
-}
-
 __global__ void calculateX(uint16_t* X, char* s2, const uint16_t s2Len);
+
+__global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len);
 
 // Operacje na liście jednokierunkowej, dla opisywania operacji zmiany s1 na s2
 Node* createNode(uint16_t ind, char letter, OperationType type);
@@ -92,22 +89,23 @@ int main(int argc, char* argv[])
 
 	CPULevenshtein(s1, s1Len, s2, s2Len, D_CPU);
 
-	//PrintD(D_CPU, s1Len + 1, s2Len + 1, s1, s2);
+	PrintD(D_CPU, s1Len + 1, s2Len + 1, s1, s2);
 
-	Node* result = RetrievePath(D_CPU, s1Len + 1, s2Len + 1, s1, s2);
-
-	printList(result);
+	Node* CPU_result = RetrievePath(D_CPU, s1Len + 1, s2Len + 1, s1, s2);
+	printList(CPU_result);
 
 	uint16_t* D_GPU = (uint16_t*)malloc(sizeof(uint16_t) * (s1Len + 1) * (s2Len + 1));
-	uint16_t* X_GPU = (uint16_t*)malloc(sizeof(uint16_t) * ALPHSTART * (s2Len + 1));
-	cudaStatus = LevenshteinGPU(s1, s2, s1Len, s2Len, D_GPU, X_GPU);
+	cudaStatus = LevenshteinGPU(s1, s2, s1Len, s2Len, D_GPU);
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "LevenshteinGPU failed! %s\n", cudaGetErrorString(cudaStatus));
 		return 1;
 	}
 
-	PrintX(X_GPU, ALPHLEN, s2Len + 1, s2);
+	PrintD(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
+
+	Node* GPU_result = RetrievePath(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
+	printList(GPU_result);
 
 	cudaStatus = cudaDeviceReset();
 	if (cudaStatus != cudaSuccess)
@@ -116,10 +114,10 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
-	freeList(result);
+	freeList(CPU_result);
+	freeList(GPU_result);
 	free(D_CPU);
 	free(D_GPU);
-	free(X_GPU);
 	return 0;
 }
 
@@ -237,11 +235,11 @@ __host__ Node* RetrievePath(uint16_t* D, uint16_t height, uint16_t width, char* 
 	maxToAdd = D[GetDInd(i, j, width)];
 	int curCellVal = D[GetDInd(i, j, width)];
 
-	while ((i != 0 && j != 0) || added != maxToAdd)
+	while ((i != 0 || j != 0) && added != maxToAdd)
 	{
 		if (i == 0)
 		{
-			while (j != 0 || added != maxToAdd)
+			while (j != 0 && added != maxToAdd)
 			{
 				addToEndList(&listTail, &listHead, i, s2[j - 1], ADD);
 				added++;
@@ -250,7 +248,7 @@ __host__ Node* RetrievePath(uint16_t* D, uint16_t height, uint16_t width, char* 
 		}
 		else if (j == 0)
 		{
-			while (i != 0 || added != maxToAdd)
+			while (i != 0 && added != maxToAdd)
 			{
 				addToEndList(&listTail, &listHead, i - 1, s1[i - 1], DELETE);
 				added++;
@@ -370,7 +368,7 @@ void freeList(Node* head)
 }
 
 // Helper function for using CUDA
-cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* D, uint16_t* X)
+cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* D)
 {
 	uint16_t* d_X;
 	uint16_t* d_D;
@@ -427,7 +425,7 @@ cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint1
 		goto Error;
 	}
 
-	calculateX<<<1, 32 >>>(d_X, d_s2, s2Len);
+	calculateX<<<1, 32>>>(d_X, d_s2, s2Len);
 
 	// Check for any errors launching the kernel
 	cudaStatus = cudaGetLastError();
@@ -437,19 +435,14 @@ cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint1
 		goto Error;
 	}
 
+	calculateD<<<1, s2Len + 1>>>(d_D, d_X, d_s1, d_s2, s1Len, s2Len);
+
 	// cudaDeviceSynchronize waits for the kernel to finish, and returns
 	// any errors encountered during the launch.
 	cudaStatus = cudaDeviceSynchronize();
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
-		goto Error;
-	}
-
-	cudaStatus = cudaMemcpy(X, d_X, (s2Len + 1) * ALPHLEN * sizeof(uint16_t), cudaMemcpyDeviceToHost);
-	if (cudaStatus != cudaSuccess)
-	{
-		fprintf(stderr, "X cudaMemcpy failed!");
 		goto Error;
 	}
 
@@ -492,6 +485,54 @@ __global__ void calculateX(uint16_t* X, char* s2, const uint16_t s2Len)
 
 			if (threadIdx.x == 0)
 				memcpy(X + ALPHLEN * i, buffer, ALPHLEN * sizeof(uint16_t));
+		}
+	}
+}
+
+__global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len)
+{
+	if (threadIdx.x < s2Len + 1)
+	{
+		uint16_t Xrow[ALPHLEN];
+		__shared__ char s1c;
+		char s2c = ' ';
+		uint16_t x;
+		uint16_t foundVal = threadIdx.x, prevVal = threadIdx.x, diagVal;
+
+		if (threadIdx.x != 0)
+			memcpy(&s2c, s2 + threadIdx.x - 1, sizeof(char));
+		memcpy(Xrow, X + ALPHLEN * threadIdx.x, ALPHLEN * sizeof(uint16_t));
+
+		for (int i = 0; i < s1Len + 1; i++)
+		{
+			if (threadIdx.x == 0 && i > 0)
+				memcpy(&s1c, s1 + i - 1, sizeof(char));
+
+			x = Xrow[ALPHSTART - s1c];
+			prevVal = foundVal;
+
+			if (threadIdx.x == 0)
+				printf("[%2d] Step: %2d, prevVal: %d\n", threadIdx.x, i, prevVal);
+
+			if (threadIdx.x != 0 && i > 0)
+				diagVal = __shfl_up_sync(0xffffffff, prevVal, 1);
+			
+			if (threadIdx.x == 1)
+				printf("[%2d] Step: %2d, diagVal: %d\n",threadIdx.x, i, diagVal);
+
+			if (i == 0)
+				foundVal = threadIdx.x;
+			else if (threadIdx.x == 0)
+				foundVal = i;
+			else if (s1c == s2c)
+				foundVal = diagVal;
+			else if (x == 0)
+				foundVal = 1 + Min(prevVal, diagVal, i + threadIdx.x - 1);
+			else
+				foundVal = 1 + Min(prevVal, diagVal, D[GetDInd(i - 1, x - 1, s2Len + 1)] + threadIdx.x - 1 - x);
+
+			D[GetDInd(i, threadIdx.x, s2Len + 1)] = foundVal;
+			__syncthreads();
 		}
 	}
 }
