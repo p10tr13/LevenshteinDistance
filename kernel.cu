@@ -7,15 +7,15 @@
 #include <cstdlib>
 #include <string.h>
 
-#define S2 "sadsfa"
+#define S2 "BADCA"
 
-#define S1 "dsags"
+#define S1 "ABADCA"
 
 #define ALPHLEN 26
 
-#define ALPHSTART 'a'
+#define ALPHSTART 'A'
 
-#define ALPHEND 'z'
+#define ALPHEND 'Z'
 
 // Struktura listy jednokierunkowej, dla opisywania operacji zmiany s1 na s2
 // Typ operacji
@@ -126,7 +126,7 @@ __host__ uint16_t checkWord(char* s)
 	int i = 0;
 	while (s[i] != '\0')
 	{
-		if (s[i] < 97 || s[i] > 122)
+		if (s[i] < ALPHSTART || s[i] > ALPHEND)
 			return 0;
 		i++;
 	}
@@ -494,8 +494,8 @@ __global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const u
 	if (threadIdx.x < s2Len + 1)
 	{
 		uint16_t Xrow[ALPHLEN];
-		__shared__ char s1c;
-		char s2c = ' ';
+		char s1c = 'a';
+		char s2c = 'b';
 		uint16_t x;
 		uint16_t foundVal = threadIdx.x, prevVal = threadIdx.x, diagVal;
 
@@ -505,20 +505,18 @@ __global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const u
 
 		for (int i = 0; i < s1Len + 1; i++)
 		{
-			if (threadIdx.x == 0 && i > 0)
-				memcpy(&s1c, s1 + i - 1, sizeof(char));
+			if (i > 0)
+				s1c = s1[i - 1];
 
-			x = Xrow[ALPHSTART - s1c];
-			prevVal = foundVal;
+			x = Xrow[s1c - ALPHSTART];
 
-			if (threadIdx.x == 0)
-				printf("[%2d] Step: %2d, prevVal: %d\n", threadIdx.x, i, prevVal);
+			//if (threadIdx.x == 0)
+			//	printf("[%2d] Step: %2d, prevVal: %d\n", threadIdx.x, i, prevVal);
 
-			if (threadIdx.x != 0 && i > 0)
-				diagVal = __shfl_up_sync(0xffffffff, prevVal, 1);
-			
-			if (threadIdx.x == 1)
-				printf("[%2d] Step: %2d, diagVal: %d\n",threadIdx.x, i, diagVal);
+			diagVal = __shfl_up_sync(0xffffffff, prevVal, 1);
+
+			//if (threadIdx.x == 1)
+			//	printf("[%2d] Step: %2d, diagVal: %d\n",threadIdx.x, i, diagVal);
 
 			if (i == 0)
 				foundVal = threadIdx.x;
@@ -530,8 +528,11 @@ __global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const u
 				foundVal = 1 + Min(prevVal, diagVal, i + threadIdx.x - 1);
 			else
 				foundVal = 1 + Min(prevVal, diagVal, D[GetDInd(i - 1, x - 1, s2Len + 1)] + threadIdx.x - 1 - x);
+				
 
 			D[GetDInd(i, threadIdx.x, s2Len + 1)] = foundVal;
+			prevVal = foundVal;
+
 			__syncthreads();
 		}
 	}
