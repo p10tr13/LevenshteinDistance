@@ -1,7 +1,8 @@
 ﻿
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
-#include "cooperative_groups.h"
+#include <cooperative_groups.h>
+using namespace cooperative_groups;
 
 #include <stdio.h>
 #include <stdint.h>
@@ -10,7 +11,9 @@
 
 #define S2 "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABA"
 
-#define S1 "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+#define S1 "AB"
+
+//#define S1 "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
 #define ALPHLEN 26
 
@@ -26,7 +29,7 @@
 // Typ operacji
 typedef enum {
 	ADD,
-	DELETE,
+	DEL,
 	REPLACE
 } OperationType;
 
@@ -106,7 +109,7 @@ int main(int argc, char* argv[])
 
 	CPULevenshtein(s1, s1Len, s2, s2Len, D_CPU);
 
-	//PrintD(D_CPU, s1Len + 1, s2Len + 1, s1, s2);
+	PrintD(D_CPU, s1Len + 1, s2Len + 1, s1, s2);
 
 	Node* CPU_result = RetrievePath(D_CPU, s1Len + 1, s2Len + 1, s1, s2);
 	//printList(CPU_result);
@@ -124,7 +127,7 @@ int main(int argc, char* argv[])
 	else
 		printf("Macierze D sa inne!!\n");
 
-	//PrintD(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
+	PrintD(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
 
 	Node* GPU_result = RetrievePath(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
 	//printList(GPU_result);
@@ -272,7 +275,7 @@ __host__ Node* RetrievePath(uint16_t* D, uint16_t height, uint16_t width, char* 
 		{
 			while (i != 0 && added != maxToAdd)
 			{
-				addToEndList(&listTail, &listHead, i - 1, s1[i - 1], DELETE);
+				addToEndList(&listTail, &listHead, i - 1, s1[i - 1], DEL);
 				added++;
 				i--;
 			}
@@ -298,7 +301,7 @@ __host__ Node* RetrievePath(uint16_t* D, uint16_t height, uint16_t width, char* 
 			}
 			else
 			{
-				addToEndList(&listTail, &listHead, i - 1, s1[i - 1], DELETE);
+				addToEndList(&listTail, &listHead, i - 1, s1[i - 1], DEL);
 				added++;
 				i--;
 			}
@@ -377,7 +380,7 @@ void printList(Node* head)
 		case ADD:
 			printf("ADD\n");
 			break;
-		case DELETE:
+		case DEL:
 			printf("DELETE\n");
 			break;
 		case REPLACE:
@@ -559,18 +562,18 @@ __global__ void calculateX(uint16_t* X, char* s2, const uint16_t s2Len)
 
 __global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* globalDiagArray)
 {
-	cooperative_groups::grid_group grid = cooperative_groups::this_grid();
+	grid_group grid = this_grid();
 	__shared__ uint16_t sharedDiagArray[WARPSINBLOCK - 1];
 
 	if (threadIdx.x + blockIdx.x * blockDim.x < s2Len + 1)
 	{
 		uint16_t Xrow[ALPHLEN];
 		char s1c, s2c;
-		uint16_t foundVal = threadIdx.x, prevVal = threadIdx.x, diagVal, x;
+		uint16_t foundVal = threadIdx.x + blockDim.x * blockIdx.x, prevVal = threadIdx.x + blockDim.x * blockIdx.x, diagVal, x;
 
-		if (threadIdx.x != 0)
-			memcpy(&s2c, s2 + threadIdx.x - 1, sizeof(char));
-		memcpy(Xrow, X + ALPHLEN * threadIdx.x, ALPHLEN * sizeof(uint16_t));
+		if (threadIdx.x + blockDim.x * blockIdx.x != 0)
+			memcpy(&s2c, s2 + threadIdx.x + blockDim.x * blockIdx.x - 1, sizeof(char));
+		memcpy(Xrow, X + ALPHLEN * (threadIdx.x + blockDim.x * blockIdx.x), ALPHLEN * sizeof(uint16_t));
 
 		for (int i = 0; i < s1Len + 1; i++)
 		{
@@ -580,7 +583,7 @@ __global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const u
 			x = Xrow[s1c - ALPHSTART];
 
 			//if (threadIdx.x == 0)
-			//	printf("[%2d] Step: %2d, prevVal: %d\n", threadIdx.x, i, prevVal);
+			//	printf("[%2d] Step: %2d, prevVal: %d\n", threadIdx.x  + blockDim.x * blockIdx.x, i, prevVal);
 
 			diagVal = __shfl_up_sync(0xffffffff, prevVal, 1);
 
@@ -590,20 +593,20 @@ __global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const u
 				diagVal = globalDiagArray[blockIdx.x - 1];
 
 			//if (threadIdx.x == 1)
-			//	printf("[%2d] Step: %2d, diagVal: %d\n",threadIdx.x, i, diagVal);
+			//	printf("[%2d] Step: %2d, diagVal: %d\n",threadIdx.x  + blockDim.x * blockIdx.x, i, diagVal);
 
 			if (i == 0)
-				foundVal = threadIdx.x;
-			else if (threadIdx.x == 0)
+				foundVal = threadIdx.x + blockDim.x * blockIdx.x;
+			else if (threadIdx.x + blockDim.x * blockIdx.x == 0)
 				foundVal = i;
 			else if (s1c == s2c)
 				foundVal = diagVal;
 			else if (x == 0)
-				foundVal = 1 + Min(prevVal, diagVal, i + threadIdx.x - 1);
+				foundVal = 1 + Min(prevVal, diagVal, i + threadIdx.x + blockDim.x * blockIdx.x - 1);
 			else
-				foundVal = 1 + Min(prevVal, diagVal, D[GetDInd(i - 1, x - 1, s2Len + 1)] + threadIdx.x - 1 - x);
+				foundVal = 1 + Min(prevVal, diagVal, D[GetDInd(i - 1, x - 1, s2Len + 1)] + threadIdx.x + blockDim.x * blockIdx.x - 1 - x);
 
-			D[GetDInd(i, threadIdx.x, s2Len + 1)] = foundVal;
+			D[GetDInd(i, threadIdx.x + blockDim.x * blockIdx.x, s2Len + 1)] = foundVal;
 			prevVal = foundVal;
 
 			if (threadIdx.x % WARPSIZE == WARPSIZE - 1 && threadIdx.x != WARPSIZE * WARPSINBLOCK - 1)
