@@ -1,21 +1,26 @@
 ﻿
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
+#include "cooperative_groups.h"
 
 #include <stdio.h>
 #include <stdint.h>
 #include <cstdlib>
 #include <string.h>
 
-#define S2 "BADCA"
+#define S2 "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABA"
 
-#define S1 "ABADCA"
+#define S1 "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
 #define ALPHLEN 26
 
 #define ALPHSTART 'A'
 
 #define ALPHEND 'Z'
+
+#define WARPSIZE 32
+
+#define WARPSINBLOCK 32
 
 // Struktura listy jednokierunkowej, dla opisywania operacji zmiany s1 na s2
 // Typ operacji
@@ -34,6 +39,16 @@ typedef struct Node
 	struct Node* next;
 } Node;
 
+// Struktura dla argumentów kernela dla Cooperative Group
+typedef struct {
+	uint16_t* D;
+	uint16_t* X;
+	char* s1;
+	char* s2;
+	uint16_t s1Len;
+	uint16_t s2Len;
+} KernelArgs;
+
 cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* D);
 
 __host__ uint16_t checkWord(char* s);
@@ -50,9 +65,11 @@ __host__ void PrintX(uint16_t* X, uint16_t height, uint16_t width, char* s2);
 
 __host__ Node* RetrievePath(uint16_t* D, uint16_t height, uint16_t width, char* s1, char* s2);
 
+__host__ bool EasyCheck(uint16_t* hD, uint16_t* dD, uint16_t height, uint16_t width);
+
 __global__ void calculateX(uint16_t* X, char* s2, const uint16_t s2Len);
 
-__global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len);
+__global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* globalDiagArray);
 
 // Operacje na liście jednokierunkowej, dla opisywania operacji zmiany s1 na s2
 Node* createNode(uint16_t ind, char letter, OperationType type);
@@ -89,10 +106,10 @@ int main(int argc, char* argv[])
 
 	CPULevenshtein(s1, s1Len, s2, s2Len, D_CPU);
 
-	PrintD(D_CPU, s1Len + 1, s2Len + 1, s1, s2);
+	//PrintD(D_CPU, s1Len + 1, s2Len + 1, s1, s2);
 
 	Node* CPU_result = RetrievePath(D_CPU, s1Len + 1, s2Len + 1, s1, s2);
-	printList(CPU_result);
+	//printList(CPU_result);
 
 	uint16_t* D_GPU = (uint16_t*)malloc(sizeof(uint16_t) * (s1Len + 1) * (s2Len + 1));
 	cudaStatus = LevenshteinGPU(s1, s2, s1Len, s2Len, D_GPU);
@@ -102,10 +119,15 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
-	PrintD(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
+	if (EasyCheck(D_CPU, D_GPU, s1Len + 1, s2Len + 1))
+		printf("Macierze D sa takie same :)\n");
+	else
+		printf("Macierze D sa inne!!\n");
+
+	//PrintD(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
 
 	Node* GPU_result = RetrievePath(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
-	printList(GPU_result);
+	//printList(GPU_result);
 
 	cudaStatus = cudaDeviceReset();
 	if (cudaStatus != cudaSuccess)
@@ -287,6 +309,17 @@ __host__ Node* RetrievePath(uint16_t* D, uint16_t height, uint16_t width, char* 
 	return listHead;
 }
 
+__host__ bool EasyCheck(uint16_t* hD, uint16_t* dD, uint16_t height, uint16_t width)
+{
+	int len = height * width;
+	for (int i = 0; i < len; i++)
+	{
+		if (hD[i] != dD[i])
+			return false;
+	}
+	return true;
+}
+
 // Tworzenie nowego węzła listy
 Node* createNode(uint16_t ind, char letter, OperationType type)
 {
@@ -374,6 +407,7 @@ cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint1
 	uint16_t* d_D;
 	char* d_s1, * d_s2;
 	cudaError_t cudaStatus;
+	uint16_t* d_globalDiagArray;
 
 	// Choose which GPU to run on, change this on a multi-GPU system.
 	cudaStatus = cudaSetDevice(0);
@@ -382,6 +416,28 @@ cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint1
 		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
 		goto Error;
 	}
+
+	int dev = 0, blocks = 1, threads = 1;
+	cudaDeviceProp deviceProp;
+	cudaGetDeviceProperties(&deviceProp, dev);
+
+	if ((s2Len + 1) % (WARPSINBLOCK * WARPSIZE) != 0)
+		blocks = ((s2Len + 1) - ((s2Len + 1) % (WARPSINBLOCK * WARPSIZE))) / (WARPSINBLOCK * WARPSIZE) + 1;
+	else
+		blocks = (s2Len + 1) / (WARPSINBLOCK * WARPSIZE);
+
+	if (blocks > deviceProp.multiProcessorCount)
+	{
+		printf("Za długie słowo s2 dla tego GPU.\n");
+		goto Error;
+	}
+
+	if ((s2Len + 1) >= (WARPSINBLOCK * WARPSIZE))
+		threads = (WARPSINBLOCK * WARPSIZE);
+	else if ((s2Len + 1) % WARPSIZE == 0)
+		threads = ((s2Len + 1) / WARPSIZE) * WARPSIZE;
+	else
+		threads = (((s2Len + 1) - (s2Len + 1) % WARPSIZE) / WARPSIZE + 1) * WARPSIZE;
 
 	cudaStatus = cudaMalloc(&d_X, (s2Len + 1) * ALPHLEN * sizeof(uint16_t));
 	if (cudaStatus != cudaSuccess)
@@ -394,6 +450,13 @@ cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint1
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "d_D cudaMalloc failed!");
+		goto Error;
+	}
+
+	cudaStatus = cudaMalloc(&d_globalDiagArray, blocks * sizeof(uint16_t));
+	if (cudaStatus != cudaSuccess)
+	{
+		fprintf(stderr, "d_globalDiagArray cudaMalloc failed!");
 		goto Error;
 	}
 
@@ -435,7 +498,12 @@ cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint1
 		goto Error;
 	}
 
-	calculateD<<<1, s2Len + 1>>>(d_D, d_X, d_s1, d_s2, s1Len, s2Len);
+	void* args[] = {(void*)&d_D, (void*)&d_X, (void*)&d_s1, (void*)&d_s2, (void*)&s1Len, (void*)&s2Len, (void*)&d_globalDiagArray};
+
+	// initialize, then launch
+	cudaLaunchCooperativeKernel((void*)calculateD, blocks, threads, args);
+
+	//calculateD<<<1, s2Len + 1>>>(d_D, d_X, d_s1, d_s2, s1Len, s2Len);
 
 	// cudaDeviceSynchronize waits for the kernel to finish, and returns
 	// any errors encountered during the launch.
@@ -489,15 +557,16 @@ __global__ void calculateX(uint16_t* X, char* s2, const uint16_t s2Len)
 	}
 }
 
-__global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len)
+__global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* globalDiagArray)
 {
-	if (threadIdx.x < s2Len + 1)
+	cooperative_groups::grid_group grid = cooperative_groups::this_grid();
+	__shared__ uint16_t sharedDiagArray[WARPSINBLOCK - 1];
+
+	if (threadIdx.x + blockIdx.x * blockDim.x < s2Len + 1)
 	{
 		uint16_t Xrow[ALPHLEN];
-		char s1c = 'a';
-		char s2c = 'b';
-		uint16_t x;
-		uint16_t foundVal = threadIdx.x, prevVal = threadIdx.x, diagVal;
+		char s1c, s2c;
+		uint16_t foundVal = threadIdx.x, prevVal = threadIdx.x, diagVal, x;
 
 		if (threadIdx.x != 0)
 			memcpy(&s2c, s2 + threadIdx.x - 1, sizeof(char));
@@ -515,6 +584,11 @@ __global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const u
 
 			diagVal = __shfl_up_sync(0xffffffff, prevVal, 1);
 
+			if (threadIdx.x % WARPSIZE == 0 && threadIdx.x != 0)
+				diagVal = sharedDiagArray[threadIdx.x / WARPSIZE - 1];
+			else if (threadIdx.x == 0 && blockIdx.x != 0)
+				diagVal = globalDiagArray[blockIdx.x - 1];
+
 			//if (threadIdx.x == 1)
 			//	printf("[%2d] Step: %2d, diagVal: %d\n",threadIdx.x, i, diagVal);
 
@@ -528,12 +602,16 @@ __global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const u
 				foundVal = 1 + Min(prevVal, diagVal, i + threadIdx.x - 1);
 			else
 				foundVal = 1 + Min(prevVal, diagVal, D[GetDInd(i - 1, x - 1, s2Len + 1)] + threadIdx.x - 1 - x);
-				
 
 			D[GetDInd(i, threadIdx.x, s2Len + 1)] = foundVal;
 			prevVal = foundVal;
 
-			__syncthreads();
+			if (threadIdx.x % WARPSIZE == WARPSIZE - 1 && threadIdx.x != WARPSIZE * WARPSINBLOCK - 1)
+				sharedDiagArray[(threadIdx.x - (WARPSIZE - 1)) / WARPSIZE] = prevVal;
+			else if (threadIdx.x == WARPSIZE * WARPSINBLOCK - 1 && blockIdx.x != gridDim.x - 1)
+				globalDiagArray[blockIdx.x] = prevVal;
+
+			grid.sync();
 		}
 	}
 }
