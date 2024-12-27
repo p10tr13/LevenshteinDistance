@@ -2,18 +2,26 @@
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 #include <cooperative_groups.h>
-using namespace cooperative_groups;
+
+#include <iomanip>
+#include <chrono>
+#include <iostream>
 
 #include <stdio.h>
 #include <stdint.h>
 #include <cstdlib>
 #include <string.h>
+#include <time.h>
 
-#define S2 "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABA"
+using namespace cooperative_groups;
+using namespace std;
+using namespace std::chrono;
 
-#define S1 "AB"
+//#define S2 "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABA"
 
 //#define S1 "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
+#define LEN 10238
 
 #define ALPHLEN 26
 
@@ -52,7 +60,7 @@ typedef struct {
 	uint16_t s2Len;
 } KernelArgs;
 
-cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* D);
+cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* D, long long* gpu_alloc_time, long long* calculateD_time, long long* copy_to_h_time, long long* calculateX_time);
 
 __host__ uint16_t checkWord(char* s);
 
@@ -74,6 +82,8 @@ __global__ void calculateX(uint16_t* X, char* s2, const uint16_t s2Len);
 
 __global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* globalDiagArray);
 
+void saveToFile(uint16_t* dD, uint16_t* hD, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len);
+
 // Operacje na liście jednokierunkowej, dla opisywania operacji zmiany s1 na s2
 Node* createNode(uint16_t ind, char letter, OperationType type);
 void addToFrontList(Node** head, uint16_t ind, char letter, OperationType type);
@@ -84,6 +94,19 @@ void freeList(Node* head);
 int main(int argc, char* argv[])
 {
 	cudaError_t cudaStatus;
+	long long cpu_time = 0, gpu_time = 0, gpu_calculateD_time = 0, gpu_prepare_time = 0, gpu_copy_to_h_time = 0, gpu_calculateX_time = 0, cpu_path_time = 0, gpu_path_time = 0;
+
+	char S1[LEN], S2[LEN], help;
+
+	srand(time(NULL));
+
+	for (int i = 0; i < LEN - 1; i++)
+	{
+		S1[i] = 'A' + rand() % 26;
+		S2[i] = 'A' + rand() % 26;
+	}
+	S1[LEN - 1] = '\0';
+	S2[LEN - 1] = '\0';
 
 	char* s1, * s2;
 
@@ -107,15 +130,22 @@ int main(int argc, char* argv[])
 
 	uint16_t* D_CPU = (uint16_t*)malloc(sizeof(uint16_t) * (s1Len + 1) * (s2Len + 1));
 
+	auto cpu_ts = high_resolution_clock::now();
 	CPULevenshtein(s1, s1Len, s2, s2Len, D_CPU);
+	auto cpu_te = high_resolution_clock::now();
+	cpu_time += 0.001 * duration_cast<microseconds> (cpu_te - cpu_ts).count();
 
-	PrintD(D_CPU, s1Len + 1, s2Len + 1, s1, s2);
-
+	auto cpu_path_ts = high_resolution_clock::now();
 	Node* CPU_result = RetrievePath(D_CPU, s1Len + 1, s2Len + 1, s1, s2);
-	//printList(CPU_result);
+	auto cpu_path_te = high_resolution_clock::now();
+	cpu_path_time += duration_cast<microseconds> (cpu_path_te - cpu_path_ts).count();
 
 	uint16_t* D_GPU = (uint16_t*)malloc(sizeof(uint16_t) * (s1Len + 1) * (s2Len + 1));
-	cudaStatus = LevenshteinGPU(s1, s2, s1Len, s2Len, D_GPU);
+
+	auto gpu_ts = high_resolution_clock::now();
+	cudaStatus = LevenshteinGPU(s1, s2, s1Len, s2Len, D_GPU, &gpu_prepare_time, &gpu_calculateD_time, &gpu_copy_to_h_time, &gpu_calculateX_time);
+	auto gpu_te = high_resolution_clock::now();
+	gpu_time += 0.001 * duration_cast<microseconds> (gpu_te - gpu_ts).count();
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "LevenshteinGPU failed! %s\n", cudaGetErrorString(cudaStatus));
@@ -127,10 +157,26 @@ int main(int argc, char* argv[])
 	else
 		printf("Macierze D sa inne!!\n");
 
-	PrintD(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
-
+	auto gpu_path_ts = high_resolution_clock::now();
 	Node* GPU_result = RetrievePath(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
+	auto gpu_path_te = high_resolution_clock::now();
+	gpu_path_time += duration_cast<microseconds> (gpu_path_te - gpu_path_ts).count();
+
+	//PrintD(D_CPU, s1Len + 1, s2Len + 1, s1, s2);
+	//printList(CPU_result);
+	//PrintD(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
 	//printList(GPU_result);
+	//saveToFile(D_GPU, D_CPU, s1, s2, s1Len, s2Len);
+
+	std::cout << "CPU time: " << setw(7) << cpu_time << " nsec" << endl;
+	std::cout << "Whole GPU time: " << setw(7) << gpu_time << " nsec" << endl;
+	std::cout << "GPU memory alloc + copy + SetDevice time: " << setw(7) << gpu_prepare_time << " nsec" << endl;
+	std::cout << "CalculateX time: " << setw(7) << gpu_calculateX_time << " nsec" << endl;
+	std::cout << "CalculateD time: " << setw(7) << gpu_calculateD_time << " nsec" << endl;
+	std::cout << "Algorithm(CalculateD + CalculateX) GPU time: " << setw(7) << gpu_calculateD_time + gpu_calculateX_time << " nsec" << endl;
+	std::cout << "Copy to host GPU time: " << setw(7) << 0.001 * gpu_copy_to_h_time << " nsec" << endl;
+	std::cout << "RetrievePath CPU time: " << setw(7) << 0.001 * cpu_path_time << " nsec" << endl;
+	std::cout << "RetrievePath GPU time: " << setw(7) << 0.001 * gpu_path_time << " nsec" << endl;
 
 	cudaStatus = cudaDeviceReset();
 	if (cudaStatus != cudaSuccess)
@@ -318,7 +364,10 @@ __host__ bool EasyCheck(uint16_t* hD, uint16_t* dD, uint16_t height, uint16_t wi
 	for (int i = 0; i < len; i++)
 	{
 		if (hD[i] != dD[i])
+		{
+			uint16_t hel1 = hD[i], hel2 = dD[i];
 			return false;
+		}
 	}
 	return true;
 }
@@ -404,7 +453,7 @@ void freeList(Node* head)
 }
 
 // Helper function for using CUDA
-cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* D)
+cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* D, long long* gpu_prepare_time, long long* calculateD_time, long long* copy_to_h_time, long long* calculateX_time)
 {
 	uint16_t* d_X;
 	uint16_t* d_D;
@@ -412,6 +461,7 @@ cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint1
 	cudaError_t cudaStatus;
 	uint16_t* d_globalDiagArray;
 
+	auto gpu_preapare_ts = high_resolution_clock::now();
 	// Choose which GPU to run on, change this on a multi-GPU system.
 	cudaStatus = cudaSetDevice(0);
 	if (cudaStatus != cudaSuccess)
@@ -485,45 +535,54 @@ cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint1
 	}
 
 	cudaStatus = cudaMemcpy(d_s2, s2, s2Len * sizeof(char), cudaMemcpyHostToDevice);
+	auto gpu_preapare_te = high_resolution_clock::now();
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "s2 cudaMemcpy failed!");
 		goto Error;
 	}
 
+	*gpu_prepare_time = 0.001 * duration_cast<microseconds> (gpu_preapare_te - gpu_preapare_ts).count();
+
+	auto gpu_calculateX_ts = high_resolution_clock::now();
 	calculateX<<<1, 32>>>(d_X, d_s2, s2Len);
 
-	// Check for any errors launching the kernel
-	cudaStatus = cudaGetLastError();
+	cudaStatus = cudaDeviceSynchronize();
+	auto gpu_calculateX_te = high_resolution_clock::now();
 	if (cudaStatus != cudaSuccess)
 	{
-		fprintf(stderr, "addKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
+		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching calculateX!\n", cudaStatus);
 		goto Error;
 	}
+
+	*calculateX_time = 0.001 * duration_cast<microseconds> (gpu_calculateX_te - gpu_calculateX_ts).count();
 
 	void* args[] = {(void*)&d_D, (void*)&d_X, (void*)&d_s1, (void*)&d_s2, (void*)&s1Len, (void*)&s2Len, (void*)&d_globalDiagArray};
 
 	// initialize, then launch
+	auto gpu_calculateD_ts = high_resolution_clock::now();
 	cudaLaunchCooperativeKernel((void*)calculateD, blocks, threads, args);
 
-	//calculateD<<<1, s2Len + 1>>>(d_D, d_X, d_s1, d_s2, s1Len, s2Len);
-
-	// cudaDeviceSynchronize waits for the kernel to finish, and returns
-	// any errors encountered during the launch.
 	cudaStatus = cudaDeviceSynchronize();
+	auto gpu_calculateD_te = high_resolution_clock::now();
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
 		goto Error;
 	}
 
-	// Copy output vector from GPU buffer to host memory.
+	*calculateD_time = 0.001 * duration_cast<microseconds> (gpu_calculateD_te - gpu_calculateD_ts).count();
+
+	auto gpu_memory_back_ts = high_resolution_clock::now();
 	cudaStatus = cudaMemcpy(D, d_D, (s1Len + 1) * (s2Len + 1) * sizeof(uint16_t), cudaMemcpyDeviceToHost);
+	auto gpu_memory_back_te = high_resolution_clock::now();
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "D cudaMemcpy failed!");
 		goto Error;
 	}
+
+	*copy_to_h_time += duration_cast<microseconds>(gpu_memory_back_te - gpu_memory_back_ts).count();
 
 Error:
 	cudaFree(d_D);
@@ -582,18 +641,14 @@ __global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const u
 
 			x = Xrow[s1c - ALPHSTART];
 
-			//if (threadIdx.x == 0)
-			//	printf("[%2d] Step: %2d, prevVal: %d\n", threadIdx.x  + blockDim.x * blockIdx.x, i, prevVal);
-
 			diagVal = __shfl_up_sync(0xffffffff, prevVal, 1);
 
 			if (threadIdx.x % WARPSIZE == 0 && threadIdx.x != 0)
-				diagVal = sharedDiagArray[threadIdx.x / WARPSIZE - 1];
+				diagVal = sharedDiagArray[(threadIdx.x / WARPSIZE) - 1];
 			else if (threadIdx.x == 0 && blockIdx.x != 0)
 				diagVal = globalDiagArray[blockIdx.x - 1];
 
-			//if (threadIdx.x == 1)
-			//	printf("[%2d] Step: %2d, diagVal: %d\n",threadIdx.x  + blockDim.x * blockIdx.x, i, diagVal);
+			grid.sync();
 
 			if (i == 0)
 				foundVal = threadIdx.x + blockDim.x * blockIdx.x;
@@ -604,7 +659,7 @@ __global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const u
 			else if (x == 0)
 				foundVal = 1 + Min(prevVal, diagVal, i + threadIdx.x + blockDim.x * blockIdx.x - 1);
 			else
-				foundVal = 1 + Min(prevVal, diagVal, D[GetDInd(i - 1, x - 1, s2Len + 1)] + threadIdx.x + blockDim.x * blockIdx.x - 1 - x);
+				foundVal = 1 + Min(prevVal, diagVal, D[GetDInd(i - 1, x - 1, s2Len + 1)] + threadIdx.x + blockDim.x * blockIdx.x - 1 - x);	
 
 			D[GetDInd(i, threadIdx.x + blockDim.x * blockIdx.x, s2Len + 1)] = foundVal;
 			prevVal = foundVal;
@@ -617,4 +672,74 @@ __global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const u
 			grid.sync();
 		}
 	}
+}
+
+void saveToFile(uint16_t* dD, uint16_t* hD, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len)
+{
+	FILE* cpu_outputfile = fopen("CPU_OUTPUTFILE.txt", "w");
+	if (cpu_outputfile == NULL)
+	{
+		fprintf(stderr, "Nie mozna otworzyc pliku do zapisu wynikow z cpu\n");
+	}
+
+	FILE* gpu_outputfile = fopen("GPU_OUTPUTFILE.txt", "w");
+	if (gpu_outputfile == NULL)
+	{
+		fprintf(stderr, "Nie mozna otworzyc pliku do zapisu wynikow z gpu\n");
+		fclose(cpu_outputfile);
+	}
+
+	fwrite(" ", sizeof(char), 1, cpu_outputfile);
+	fwrite(",", sizeof(char), 1, cpu_outputfile);
+	fwrite(" ", sizeof(char), 1, gpu_outputfile);
+	fwrite(",", sizeof(char), 1, gpu_outputfile);
+	
+	for (int i = 0; i < s2Len + 1; i++)
+	{
+		if (i == 0)
+		{
+			fwrite(" ", sizeof(char), 1, cpu_outputfile);
+			fwrite(",", sizeof(char), 1, cpu_outputfile);
+			fwrite(" ", sizeof(char), 1, gpu_outputfile);
+			fwrite(",", sizeof(char), 1, gpu_outputfile);
+		}
+		else
+		{
+			fwrite(s2 + i - 1, sizeof(char), 1, cpu_outputfile);
+			fwrite(",", sizeof(char), 1, cpu_outputfile);
+			fwrite(s2 + i - 1, sizeof(char), 1, gpu_outputfile);
+			fwrite(",", sizeof(char), 1, gpu_outputfile);
+		}
+	}
+	fprintf(cpu_outputfile, "\n");
+	fprintf(gpu_outputfile, "\n");
+
+	for (int i = 0; i < s1Len + 1; i++)
+	{
+		if (i == 0)
+		{
+			fwrite(" ", sizeof(char), 1, cpu_outputfile);
+			fwrite(",", sizeof(char), 1, cpu_outputfile);
+			fwrite(" ", sizeof(char), 1, gpu_outputfile);
+			fwrite(",", sizeof(char), 1, gpu_outputfile);
+		}
+		else
+		{
+			fwrite(s1 + i - 1, sizeof(char), 1, cpu_outputfile);
+			fwrite(",", sizeof(char), 1, cpu_outputfile);
+			fwrite(s1 + i - 1, sizeof(char), 1, gpu_outputfile);
+			fwrite(",", sizeof(char), 1, gpu_outputfile);
+		}
+
+		for (int j = 0; j < s2Len + 1; j++)
+		{
+			fprintf(cpu_outputfile, "%u,", hD[GetDInd(i, j, s2Len + 1)]);
+			fprintf(gpu_outputfile, "%u,", dD[GetDInd(i, j, s2Len + 1)]);
+		}
+		fprintf(cpu_outputfile, "\n");
+		fprintf(gpu_outputfile, "\n");
+	}
+
+	fclose(cpu_outputfile);
+	fclose(gpu_outputfile);
 }
