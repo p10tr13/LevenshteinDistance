@@ -17,12 +17,6 @@ using namespace cooperative_groups;
 using namespace std;
 using namespace std::chrono;
 
-//#define S2 "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABA"
-
-//#define S1 "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-
-#define LEN 4723
-
 #define ALPHLEN 26
 
 #define ALPHSTART 'A'
@@ -54,16 +48,6 @@ typedef struct Node
 	struct Node* next;
 } Node;
 
-// Struktura dla argumentów kernela dla Cooperative Group
-typedef struct {
-	uint16_t* D;
-	uint16_t* X;
-	char* s1;
-	char* s2;
-	uint16_t s1Len;
-	uint16_t s2Len;
-} KernelArgs;
-
 cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* D, long long* gpu_alloc_time, long long* calculateD_time, long long* copy_to_h_time, long long* calculateX_time);
 __host__ uint16_t checkWord(char* s);
 __host__ __device__ uint32_t GetDInd(uint16_t i, uint16_t j, uint16_t width);
@@ -77,6 +61,7 @@ __global__ void calculateX(uint16_t* X, char* s2, const uint16_t s2Len);
 __global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* globalDiagArray);
 __global__ void rozgrzewka(int i);
 __host__ void saveToFile(uint16_t* dD, uint16_t* hD, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, char* cpu_outputfilepath, char* gpu_outputfilepath);
+__host__ void howToUse();
 
 // Operacje na liście jednokierunkowej, dla opisywania operacji zmiany s1 na s2
 __host__ Node* createNode(uint16_t ind, char letter, OperationType type);
@@ -89,32 +74,68 @@ int main(int argc, char* argv[])
 {
 	cudaError_t cudaStatus;
 	long long cpu_time = 0, gpu_time = 0, gpu_calculateD_time = 0, gpu_prepare_time = 0, gpu_copy_to_h_time = 0, gpu_calculateX_time = 0, cpu_path_time = 0, gpu_path_time = 0;
-
-	char S1[LEN], S2[LEN];
+	int mode = 0, print_mode = 0;
+	char* s1, * s2;
 
 	srand(time(NULL));
 
-	for (int i = 0; i < LEN - 1; i++)
+	if (argc > 4)
 	{
-		S1[i] = 'A' + rand() % 26;
-		S2[i] = 'A' + rand() % 26;
+		print_mode = atoi(argv[4]);
+		if (print_mode < 1 || print_mode > 6)
+		{
+			howToUse();
+			return 0;
+		}
 	}
-	S1[LEN - 1] = '\0';
-	S2[LEN - 1] = '\0';
+		
+	if (argc > 3)
+	{
+		mode = atoi(argv[1]);
+		switch (mode)
+		{
+			case 1:
+			{
+				s1 = argv[2];
+				s2 = argv[3];
+				break;
+			}
+			case 2:
+			{
+				int len1 = atoi(argv[2]), len2 = atoi(argv[3]);
+				if (len1 < 2 || len2 < 2)
+				{
+					howToUse();
+					return 0;
+				}
 
-	char* s1, * s2;
+				s1 = (char*)malloc(sizeof(char) * len1);
+				s2 = (char*)malloc(sizeof(char) * len2);
 
-	if (argc > 2)
-		s2 = argv[2];
-	else
-		s2 = S2;
-	if (argc > 1)
-		s1 = argv[1];
+				for (int i = 0; i < len1 - 1; i++)
+					s1[i] = 'A' + rand() % 26;
+
+				for (int i = 0; i < len2 - 1; i++)
+					s2[i] = 'A' + rand() % 26;
+
+				s1[len1 - 1] = '\0';
+				s2[len2 - 1] = '\0';
+				break;
+			}
+			default:
+			{
+				howToUse();
+				return 0;
+			}
+		}
+	}
 	else
 	{
-		s1 = S1; s2 = S2;
+		howToUse();
+		return 0;
 	}
 
+	// Sprawdzenie poprawności słow s1 i s2
 	uint16_t s1Len = checkWord(s1), s2Len = checkWord(s2);
 	if (s1Len == 0 || s2Len == 0)
 	{
@@ -123,12 +144,17 @@ int main(int argc, char* argv[])
 	}
 
 	uint16_t* D_CPU = (uint16_t*)malloc(sizeof(uint16_t) * (s1Len + 1) * (s2Len + 1));
+	if (D_CPU == NULL)
+	{
+		std::cout << "D_CPU Memory Allocation Failed";
+		exit(1);
+	}
 
 	// Obliczanie D na CPU
 	auto cpu_ts = high_resolution_clock::now();
 	CPULevenshtein(s1, s1Len, s2, s2Len, D_CPU);
 	auto cpu_te = high_resolution_clock::now();
-	cpu_time += 0.001 * duration_cast<microseconds> (cpu_te - cpu_ts).count();
+	cpu_time += duration_cast<microseconds> (cpu_te - cpu_ts).count();
 
 	// Obliczanie przekształceń s1 na s2 z tablicy obliczonej przez CPU
 	auto cpu_path_ts = high_resolution_clock::now();
@@ -137,6 +163,13 @@ int main(int argc, char* argv[])
 	cpu_path_time += duration_cast<microseconds> (cpu_path_te - cpu_path_ts).count();
 
 	uint16_t* D_GPU = (uint16_t*)malloc(sizeof(uint16_t) * (s1Len + 1) * (s2Len + 1));
+	if (D_GPU == NULL)
+	{
+		std::cout << "D_GPU Memory Allocation Failed";
+		free(D_CPU);
+		freeList(CPU_result);
+		exit(1);
+	}
 
 	// Choose which GPU to run on, change this on a multi-GPU system.
 	cudaStatus = cudaSetDevice(0);
@@ -147,7 +180,7 @@ int main(int argc, char* argv[])
 	}
 
 	// Funkcja rozgrzewkowa (nic nie robiąca)
-	rozgrzewka <<<1, 32 >>>(1);
+	rozgrzewka << <1, 32 >> > (1);
 	cudaStatus = cudaDeviceSynchronize();
 	if (cudaStatus != cudaSuccess)
 	{
@@ -159,11 +192,11 @@ int main(int argc, char* argv[])
 	auto gpu_ts = high_resolution_clock::now();
 	cudaStatus = LevenshteinGPU(s1, s2, s1Len, s2Len, D_GPU, &gpu_prepare_time, &gpu_calculateD_time, &gpu_copy_to_h_time, &gpu_calculateX_time);
 	auto gpu_te = high_resolution_clock::now();
-	gpu_time += 0.001 * duration_cast<microseconds> (gpu_te - gpu_ts).count();
+	gpu_time += duration_cast<microseconds> (gpu_te - gpu_ts).count();
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "LevenshteinGPU failed! %s\n", cudaGetErrorString(cudaStatus));
-		return 1;
+		goto Error;
 	}
 
 	// Sprawdzenie czy oba wyniki są identyczne
@@ -178,18 +211,51 @@ int main(int argc, char* argv[])
 	auto gpu_path_te = high_resolution_clock::now();
 	gpu_path_time += duration_cast<microseconds> (gpu_path_te - gpu_path_ts).count();
 
-	//PrintD(D_CPU, s1Len + 1, s2Len + 1, s1, s2);
-	//printList(CPU_result);
-	//PrintD(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
-	//printList(GPU_result);
-	//saveToFile(D_GPU, D_CPU, s1, s2, s1Len, s2Len, CPU_OUTPUTFILEPATH, GPU_OUTPUTFILEPATH);
+	// Wypisywanie wyników
+	switch (print_mode)
+	{
+		case 1:
+		{
+			PrintD(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
+			break;
+		}
+		case 2:
+		{
+			printList(GPU_result);
+			break;
+		}
+		case 3:
+		{
+			saveToFile(D_GPU, D_CPU, s1, s2, s1Len, s2Len, CPU_OUTPUTFILEPATH, GPU_OUTPUTFILEPATH);
+			break;
+		}
+		case 4:
+		{
+			PrintD(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
+			printList(GPU_result);
+			break;
+		}
+		case 5:
+		{
+			printList(GPU_result);
+			saveToFile(D_GPU, D_CPU, s1, s2, s1Len, s2Len, CPU_OUTPUTFILEPATH, GPU_OUTPUTFILEPATH);
+			break;
+		}
+		case 6:
+		{
+			PrintD(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
+			printList(GPU_result);
+			saveToFile(D_GPU, D_CPU, s1, s2, s1Len, s2Len, CPU_OUTPUTFILEPATH, GPU_OUTPUTFILEPATH);
+			break;
+		}
+	}
 
-	std::cout << "CPU time: " << setw(7) << cpu_time << " nsec" << endl;
-	std::cout << "Whole GPU time: " << setw(7) << gpu_time << " nsec" << endl;
-	std::cout << "GPU memory alloc + copy + SetDevice time: " << setw(7) << gpu_prepare_time << " nsec" << endl;
-	std::cout << "CalculateX time: " << setw(7) << gpu_calculateX_time << " nsec" << endl;
-	std::cout << "CalculateD time: " << setw(7) << gpu_calculateD_time << " nsec" << endl;
-	std::cout << "Algorithm(CalculateD + CalculateX) GPU time: " << setw(7) << gpu_calculateD_time + gpu_calculateX_time << " nsec" << endl;
+	std::cout << "CPU time: " << setw(7) << 0.001 * cpu_time << " nsec" << endl;
+	std::cout << "Whole GPU time: " << setw(7) << 0.001 * gpu_time << " nsec" << endl;
+	std::cout << "GPU memory alloc + copy time: " << setw(7) << 0.001 * gpu_prepare_time << " nsec" << endl;
+	std::cout << "CalculateX time: " << setw(7) << 0.001 * gpu_calculateX_time << " nsec" << endl;
+	std::cout << "CalculateD time: " << setw(7) << 0.001 * gpu_calculateD_time << " nsec" << endl;
+	std::cout << "Algorithm(CalculateD + CalculateX) GPU time: " << setw(7) << 0.001 * gpu_calculateD_time + 0.001 * gpu_calculateX_time << " nsec" << endl;
 	std::cout << "Copy to host GPU time: " << setw(7) << 0.001 * gpu_copy_to_h_time << " nsec" << endl;
 	std::cout << "RetrievePath CPU time: " << setw(7) << 0.001 * cpu_path_time << " nsec" << endl;
 	std::cout << "RetrievePath GPU time: " << setw(7) << 0.001 * gpu_path_time << " nsec" << endl;
@@ -198,7 +264,7 @@ int main(int argc, char* argv[])
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "cudaDeviceReset failed!");
-		return 1;
+		goto Error;
 	}
 
 Error:
@@ -206,6 +272,11 @@ Error:
 	freeList(GPU_result);
 	free(D_CPU);
 	free(D_GPU);
+	if (mode == 2)
+	{
+		free(s1);
+		free(s2);
+	}
 	return 0;
 }
 
@@ -668,7 +739,7 @@ cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint1
 		goto Error;
 	}
 
-	*gpu_prepare_time = 0.001 * duration_cast<microseconds> (gpu_preapare_te - gpu_preapare_ts).count();
+	*gpu_prepare_time = duration_cast<microseconds> (gpu_preapare_te - gpu_preapare_ts).count();
 
 	auto gpu_calculateX_ts = high_resolution_clock::now();
 	calculateX << <1, 32 >> > (d_X, d_s2, s2Len);
@@ -681,7 +752,7 @@ cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint1
 		goto Error;
 	}
 
-	*calculateX_time = 0.001 * duration_cast<microseconds> (gpu_calculateX_te - gpu_calculateX_ts).count();
+	*calculateX_time = duration_cast<microseconds> (gpu_calculateX_te - gpu_calculateX_ts).count();
 
 	void* args[] = { (void*)&d_D, (void*)&d_X, (void*)&d_s1, (void*)&d_s2, (void*)&s1Len, (void*)&s2Len, (void*)&d_globalDiagArray };
 
@@ -697,7 +768,7 @@ cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint1
 		goto Error;
 	}
 
-	*calculateD_time = 0.001 * duration_cast<microseconds> (gpu_calculateD_te - gpu_calculateD_ts).count();
+	*calculateD_time = duration_cast<microseconds> (gpu_calculateD_te - gpu_calculateD_ts).count();
 
 	auto gpu_memory_back_ts = high_resolution_clock::now();
 	cudaStatus = cudaMemcpy(D, d_D, (s1Len + 1) * (s2Len + 1) * sizeof(uint16_t), cudaMemcpyDeviceToHost);
@@ -908,4 +979,25 @@ __host__ void saveToFile(uint16_t* dD, uint16_t* hD, char* s1, char* s2, const u
 
 	fclose(cpu_outputfile);
 	fclose(gpu_outputfile);
+}
+
+/**
+ * Wypisuje na konsole jak powinno się uruchamiać program.
+ */
+__host__ void howToUse()
+{
+	printf("Podano zle argumenty\n");
+	printf("Prawidlowe argumenty: tryb_programu arg2 arg3 (optional) print_mode\n");
+	printf("Przyklad: 1 ala lal 3\n");
+	printf("Program ma nastepujace tryby pracy:\n");
+	printf("1. dwa slowa z liter z przedzialu 'A' - 'Z'\n");
+	printf("2. dwie liczby dodatnie wieksze od 2 (program losuje litery do tych dwoch slow o podanej dlugosci)\n");
+	printf("Opcjonalnie po argumentach trybu mozna dodac sposob wypisana wyniku:\n");
+	printf("1. Wypisanie na konsole tabeli D (GPU)\n");
+	printf("2. Wypisanie na konsole listy zamian s1 na s2 (GPU)\n");
+	printf("3. Zapisanie do plików tabel D z CPU i GPU\n");
+	printf("4. Tryb wypisywania 1 i 2\n");
+	printf("5. Tryb wypisywania 2 i 3\n");
+	printf("6. Tryb 1, 2 i 3\n");
+	printf("\n");
 }
