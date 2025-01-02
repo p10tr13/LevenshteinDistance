@@ -201,9 +201,9 @@ int main(int argc, char* argv[])
 
 	// Sprawdzenie czy oba wyniki są identyczne
 	if (EasyCheck(D_CPU, D_GPU, s1Len + 1, s2Len + 1))
-		printf("Macierze D sa takie same :)\n");
+		printf("\nMacierze D sa takie same :)\n");
 	else
-		printf("Macierze D sa inne!!\n");
+		printf("\nMacierze D sa inne!!\n");
 
 	// Obliczanie przekształceń s1 na s2 z tablicy obliczonej przez GPU
 	auto gpu_path_ts = high_resolution_clock::now();
@@ -250,7 +250,7 @@ int main(int argc, char* argv[])
 		}
 	}
 
-	std::cout << "CPU time: " << setw(7) << 0.001 * cpu_time << " nsec" << endl;
+	std::cout << endl << "CPU time: " << setw(7) << 0.001 * cpu_time << " nsec" << endl;
 	std::cout << "Whole GPU time: " << setw(7) << 0.001 * gpu_time << " nsec" << endl;
 	std::cout << "GPU memory alloc + copy time: " << setw(7) << 0.001 * gpu_prepare_time << " nsec" << endl;
 	std::cout << "CalculateX time: " << setw(7) << 0.001 * gpu_calculateX_time << " nsec" << endl;
@@ -369,6 +369,7 @@ __host__ void CPULevenshtein(char* s1, uint16_t s1Len, char* s2, uint16_t s2Len,
  */
 __host__ void PrintD(uint16_t* D, uint16_t height, uint16_t width, char* s1, char* s2)
 {
+	printf("\n");
 	printf("   |");
 	for (int i = 0; i < width; i++)
 	{
@@ -607,6 +608,7 @@ __host__ void addToEndList(Node** tail, Node** head, uint16_t ind, char letter, 
  */
 __host__ void printList(Node* head)
 {
+	printf("\n");
 	Node* current = head;
 	while (current != NULL)
 	{
@@ -837,29 +839,39 @@ __global__ void calculateX(uint16_t* X, char* s2, const uint16_t s2Len)
 __global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* globalDiagArray)
 {
 	grid_group grid = this_grid();
-	__shared__ uint16_t sharedDiagArray[WARPSINBLOCK - 1];
+	__shared__ uint16_t sharedDiagArray[WARPSINBLOCK - 1]; // Tablica do wymiany zmiennych diagonalnych w danym bloku
 
 	if (threadIdx.x + blockIdx.x * blockDim.x < s2Len + 1)
 	{
-		uint16_t Xrow[ALPHLEN];
-		char s1c, s2c;
+		uint16_t Xcol[ALPHLEN];
+		char s1c, s2c; // s1c - litera iteracji, s2c - litera w danej kolumnie
 		uint16_t foundVal = threadIdx.x + blockDim.x * blockIdx.x, prevVal = threadIdx.x + blockDim.x * blockIdx.x, diagVal, x;
 
+		// diagVal - to wartość D[i-1,j-1], dla aktualnej iteracji (wartość po przekątnej w tabeli)
+		// prevVal - to wartość D[i-1,j], dla aktualnej iteracji (wartość o jeden wyżej w tabeli)
+		// foundVal - aktualnie znaleziona wartość dla D[i,j]
+
+		// Pobranie litery (odpowiadającej kolumnie), z której będzie korzystał wątek w algorytmie
 		if (threadIdx.x + blockDim.x * blockIdx.x != 0)
 			memcpy(&s2c, s2 + threadIdx.x + blockDim.x * blockIdx.x - 1, sizeof(char));
-		memcpy(Xrow, X + ALPHLEN * (threadIdx.x + blockDim.x * blockIdx.x), ALPHLEN * sizeof(uint16_t));
+		// Pobranie całej kolumny tablicy X dla każdego wątku (bo jeden wątek będzie tylko korzystał z tej samej "swojej" kolumny w tablicy X)
+		memcpy(Xcol, X + ALPHLEN * (threadIdx.x + blockDim.x * blockIdx.x), ALPHLEN * sizeof(uint16_t));
 
 		for (int i = 0; i < s1Len + 1; i++)
 		{
+			// Pobranie s1c dla aktualnej iteracji
 			if (i > 0)
 				s1c = s1[i - 1];
 
-			x = Xrow[s1c - ALPHSTART];
+			x = Xcol[s1c - ALPHSTART];
 
+			// Wymiana zmiennych pomiędzy wątkami w warpie
 			diagVal = __shfl_up_sync(0xffffffff, prevVal, 1);
 
+			// Pobranie zmiennych wymieninanych pomiędzy warpami
 			if (threadIdx.x % WARPSIZE == 0 && threadIdx.x != 0)
 				diagVal = sharedDiagArray[(threadIdx.x / WARPSIZE) - 1];
+			// Pobranie zmiennych wymieninanych pomiędzy blokami
 			else if (threadIdx.x == 0 && blockIdx.x != 0)
 				diagVal = globalDiagArray[blockIdx.x - 1];
 
@@ -876,11 +888,16 @@ __global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const u
 			else
 				foundVal = 1 + Min(prevVal, diagVal, D[GetDInd(i - 1, x - 1, s2Len + 1)] + threadIdx.x + blockDim.x * blockIdx.x - 1 - x);
 
+			// Zapisanie wyniku do tablicy D
 			D[GetDInd(i, threadIdx.x + blockDim.x * blockIdx.x, s2Len + 1)] = foundVal;
+
+			// Zapisanie wartości znalezionej jako poprzednią, aby w następnej iteracji można ją było przekazać następnemu wątkowi
 			prevVal = foundVal;
 
+			// Zapisanie zmiennej do wymiany między warpami
 			if (threadIdx.x % WARPSIZE == WARPSIZE - 1 && threadIdx.x != WARPSIZE * WARPSINBLOCK - 1)
 				sharedDiagArray[(threadIdx.x - (WARPSIZE - 1)) / WARPSIZE] = prevVal;
+			// Zapisanie zmiennej do wymiany między blokami
 			else if (threadIdx.x == WARPSIZE * WARPSINBLOCK - 1 && blockIdx.x != gridDim.x - 1)
 				globalDiagArray[blockIdx.x] = prevVal;
 
@@ -995,7 +1012,7 @@ __host__ void howToUse()
 	printf("Opcjonalnie po argumentach trybu mozna dodac sposob wypisana wyniku:\n");
 	printf("1. Wypisanie na konsole tabeli D (GPU)\n");
 	printf("2. Wypisanie na konsole listy zamian s1 na s2 (GPU)\n");
-	printf("3. Zapisanie do plików tabel D z CPU i GPU\n");
+	printf("3. Zapisanie do plikow tabel D z CPU i GPU\n");
 	printf("4. Tryb wypisywania 1 i 2\n");
 	printf("5. Tryb wypisywania 2 i 3\n");
 	printf("6. Tryb 1, 2 i 3\n");
