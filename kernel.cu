@@ -21,7 +21,7 @@ using namespace std::chrono;
 
 //#define S1 "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
-#define LEN 10238
+#define LEN 4723
 
 #define ALPHLEN 26
 
@@ -32,6 +32,10 @@ using namespace std::chrono;
 #define WARPSIZE 32
 
 #define WARPSINBLOCK 32
+
+#define GPU_OUTPUTFILEPATH "GPU_OUTPUTFILE.txt"
+
+#define CPU_OUTPUTFILEPATH "CPU_OUTPUTFILE.txt"
 
 // Struktura listy jednokierunkowej, dla opisywania operacji zmiany s1 na s2
 // Typ operacji
@@ -61,42 +65,32 @@ typedef struct {
 } KernelArgs;
 
 cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* D, long long* gpu_alloc_time, long long* calculateD_time, long long* copy_to_h_time, long long* calculateX_time);
-
 __host__ uint16_t checkWord(char* s);
-
 __host__ __device__ uint32_t GetDInd(uint16_t i, uint16_t j, uint16_t width);
-
 __host__ __device__ uint16_t Min(uint16_t num1, uint16_t num2, uint16_t num3);
-
 __host__ void CPULevenshtein(char* s1, uint16_t s1Len, char* s2, uint16_t s2Len, uint16_t* D);
-
 __host__ void PrintD(uint16_t* D, uint16_t height, uint16_t width, char* s1, char* s2);
-
 __host__ void PrintX(uint16_t* X, uint16_t height, uint16_t width, char* s2);
-
 __host__ Node* RetrievePath(uint16_t* D, uint16_t height, uint16_t width, char* s1, char* s2);
-
 __host__ bool EasyCheck(uint16_t* hD, uint16_t* dD, uint16_t height, uint16_t width);
-
 __global__ void calculateX(uint16_t* X, char* s2, const uint16_t s2Len);
-
 __global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* globalDiagArray);
-
-void saveToFile(uint16_t* dD, uint16_t* hD, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len);
+__global__ void rozgrzewka(int i);
+__host__ void saveToFile(uint16_t* dD, uint16_t* hD, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, char* cpu_outputfilepath, char* gpu_outputfilepath);
 
 // Operacje na liście jednokierunkowej, dla opisywania operacji zmiany s1 na s2
-Node* createNode(uint16_t ind, char letter, OperationType type);
-void addToFrontList(Node** head, uint16_t ind, char letter, OperationType type);
-void addToEndList(Node** tail, Node** head, uint16_t ind, char letter, OperationType type);
-void printList(Node* head);
-void freeList(Node* head);
+__host__ Node* createNode(uint16_t ind, char letter, OperationType type);
+__host__ void addToFrontList(Node** head, uint16_t ind, char letter, OperationType type);
+__host__ void addToEndList(Node** tail, Node** head, uint16_t ind, char letter, OperationType type);
+__host__ void printList(Node* head);
+__host__ void freeList(Node* head);
 
 int main(int argc, char* argv[])
 {
 	cudaError_t cudaStatus;
 	long long cpu_time = 0, gpu_time = 0, gpu_calculateD_time = 0, gpu_prepare_time = 0, gpu_copy_to_h_time = 0, gpu_calculateX_time = 0, cpu_path_time = 0, gpu_path_time = 0;
 
-	char S1[LEN], S2[LEN], help;
+	char S1[LEN], S2[LEN];
 
 	srand(time(NULL));
 
@@ -130,11 +124,13 @@ int main(int argc, char* argv[])
 
 	uint16_t* D_CPU = (uint16_t*)malloc(sizeof(uint16_t) * (s1Len + 1) * (s2Len + 1));
 
+	// Obliczanie D na CPU
 	auto cpu_ts = high_resolution_clock::now();
 	CPULevenshtein(s1, s1Len, s2, s2Len, D_CPU);
 	auto cpu_te = high_resolution_clock::now();
 	cpu_time += 0.001 * duration_cast<microseconds> (cpu_te - cpu_ts).count();
 
+	// Obliczanie przekształceń s1 na s2 z tablicy obliczonej przez CPU
 	auto cpu_path_ts = high_resolution_clock::now();
 	Node* CPU_result = RetrievePath(D_CPU, s1Len + 1, s2Len + 1, s1, s2);
 	auto cpu_path_te = high_resolution_clock::now();
@@ -142,6 +138,24 @@ int main(int argc, char* argv[])
 
 	uint16_t* D_GPU = (uint16_t*)malloc(sizeof(uint16_t) * (s1Len + 1) * (s2Len + 1));
 
+	// Choose which GPU to run on, change this on a multi-GPU system.
+	cudaStatus = cudaSetDevice(0);
+	if (cudaStatus != cudaSuccess)
+	{
+		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
+		goto Error;
+	}
+
+	// Funkcja rozgrzewkowa (nic nie robiąca)
+	rozgrzewka <<<1, 32 >>>(1);
+	cudaStatus = cudaDeviceSynchronize();
+	if (cudaStatus != cudaSuccess)
+	{
+		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching rozgrzewka!\n", cudaStatus);
+		goto Error;
+	}
+
+	// Obliczanie D na GPU
 	auto gpu_ts = high_resolution_clock::now();
 	cudaStatus = LevenshteinGPU(s1, s2, s1Len, s2Len, D_GPU, &gpu_prepare_time, &gpu_calculateD_time, &gpu_copy_to_h_time, &gpu_calculateX_time);
 	auto gpu_te = high_resolution_clock::now();
@@ -152,11 +166,13 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
+	// Sprawdzenie czy oba wyniki są identyczne
 	if (EasyCheck(D_CPU, D_GPU, s1Len + 1, s2Len + 1))
 		printf("Macierze D sa takie same :)\n");
 	else
 		printf("Macierze D sa inne!!\n");
 
+	// Obliczanie przekształceń s1 na s2 z tablicy obliczonej przez GPU
 	auto gpu_path_ts = high_resolution_clock::now();
 	Node* GPU_result = RetrievePath(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
 	auto gpu_path_te = high_resolution_clock::now();
@@ -166,7 +182,7 @@ int main(int argc, char* argv[])
 	//printList(CPU_result);
 	//PrintD(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
 	//printList(GPU_result);
-	//saveToFile(D_GPU, D_CPU, s1, s2, s1Len, s2Len);
+	//saveToFile(D_GPU, D_CPU, s1, s2, s1Len, s2Len, CPU_OUTPUTFILEPATH, GPU_OUTPUTFILEPATH);
 
 	std::cout << "CPU time: " << setw(7) << cpu_time << " nsec" << endl;
 	std::cout << "Whole GPU time: " << setw(7) << gpu_time << " nsec" << endl;
@@ -185,6 +201,7 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
+Error:
 	freeList(CPU_result);
 	freeList(GPU_result);
 	free(D_CPU);
@@ -192,6 +209,13 @@ int main(int argc, char* argv[])
 	return 0;
 }
 
+/**
+ * Sprawdzenie, czy dane słowo ma same litery zawierające się w zdefiniowanym alfabecie, oraz przy okazji liczy jego długość.
+ *
+ * @param s - wskaźnik na sprawdzane słowo
+ *
+ * @return długość słowa
+ */
 __host__ uint16_t checkWord(char* s)
 {
 	int i = 0;
@@ -204,11 +228,29 @@ __host__ uint16_t checkWord(char* s)
 	return i;
 }
 
+/**
+ * Zamienia indeks tablicy dwuwymiarowej na jednowymiarową.
+ *
+ * @param i - numer wiersza
+ * @param j - numer kolumny
+ * @param width - szerokość tablicy
+ *
+ * @return indeks w tablicy jednowymiarowej
+ */
 __host__ __device__ uint32_t GetDInd(uint16_t i, uint16_t j, uint16_t width)
 {
 	return i * width + j;
 }
 
+/**
+ * Oblicza najmniejszą wartość z trzech podanych.
+ *
+ * @param num1 - pierwsza liczba
+ * @param num2 - druga liczba
+ * @param num3 - trzecia liczba
+ *
+ * @return najmniejsza liczba z trzech
+ */
 __host__ __device__ uint16_t Min(uint16_t num1, uint16_t num2, uint16_t num3)
 {
 	if (num1 <= num2 && num1 <= num3)
@@ -218,6 +260,15 @@ __host__ __device__ uint16_t Min(uint16_t num1, uint16_t num2, uint16_t num3)
 	else return num3;
 }
 
+/**
+ * Podstawowa implementacja algorytmu na CPU liczenia odległości Levenshteina.
+ *
+ * @param[in] s1 - wskaźnik na słowo s1
+ * @param[in] s1Len - długość słowa s1
+ * @param[in] s2 - wskaźnik na słowo s2
+ * @param[in] s2Len - długość słowa s2
+ * @param[out] D - tablica, w której zapisywany jest wynik
+ */
 __host__ void CPULevenshtein(char* s1, uint16_t s1Len, char* s2, uint16_t s2Len, uint16_t* D)
 {
 	for (uint16_t i = 0; i < s1Len + 1; i++)
@@ -236,6 +287,15 @@ __host__ void CPULevenshtein(char* s1, uint16_t s1Len, char* s2, uint16_t s2Len,
 	}
 }
 
+/**
+ * Wypisuje tablice D na konsole.
+ *
+ * @param D - wskaźnik do tablicy D
+ * @param height - wysokość tablicy D
+ * @param width - szerokość tablicy D
+ * @param s1 - wskaźnik na słowo s1
+ * @param s2 - wskaźnik na słowo s2
+ */
 __host__ void PrintD(uint16_t* D, uint16_t height, uint16_t width, char* s1, char* s2)
 {
 	printf("   |");
@@ -275,6 +335,14 @@ __host__ void PrintD(uint16_t* D, uint16_t height, uint16_t width, char* s1, cha
 	}
 }
 
+/**
+ * Wypisuje tablice X na konsole.
+ *
+ * @param X - wskaźnik do tablicy X
+ * @param height - wysokość tablicy X
+ * @param width - szerokość tablicy X
+ * @param s2 - wskaźnik na słowo s2
+ */
 __host__ void PrintX(uint16_t* X, uint16_t height, uint16_t width, char* s2)
 {
 	printf("  ");
@@ -299,10 +367,21 @@ __host__ void PrintX(uint16_t* X, uint16_t height, uint16_t width, char* s2)
 	}
 }
 
+/**
+ * Tworzy wynikową listę przekształceń zamian liter słowa s1, aby powstało s2 na podstawie tablicy D.
+ *
+ * @param D - wskaźnik do tablicy D
+ * @param height - wysokość tablicy D
+ * @param width - szerokość tablicy D
+ * @param s1 - wskaźnik na słowo s1
+ * @param s2 - wskaźnik na słowo s2
+ *
+ * @return wskaźnik na początek listy przekształceń
+ */
 __host__ Node* RetrievePath(uint16_t* D, uint16_t height, uint16_t width, char* s1, char* s2)
 {
 	int i = height - 1, j = width - 1, added = 0, maxToAdd;
-	Node* listHead = NULL, *listTail = NULL;
+	Node* listHead = NULL, * listTail = NULL;
 	maxToAdd = D[GetDInd(i, j, width)];
 	int curCellVal = D[GetDInd(i, j, width)];
 
@@ -339,7 +418,7 @@ __host__ Node* RetrievePath(uint16_t* D, uint16_t height, uint16_t width, char* 
 				i--;
 				j--;
 			}
-			else if(min == D[GetDInd(i, j - 1, width)])
+			else if (min == D[GetDInd(i, j - 1, width)])
 			{
 				addToEndList(&listTail, &listHead, i, s2[j - 1], ADD);
 				added++;
@@ -358,6 +437,16 @@ __host__ Node* RetrievePath(uint16_t* D, uint16_t height, uint16_t width, char* 
 	return listHead;
 }
 
+/**
+ * Sprawdza, czy tablice podane są identyczne.
+ *
+ * @param hD - wskaźnik do pierwszej tablicy D
+ * @param dD - wskaźnik do drugiej tablicy D
+ * @param height - wysokość tablicy D
+ * @param width - szerokość tablicy D
+ *
+ * @return wynik sprawdzania identyczności tablic
+ */
 __host__ bool EasyCheck(uint16_t* hD, uint16_t* dD, uint16_t height, uint16_t width)
 {
 	int len = height * width;
@@ -372,8 +461,16 @@ __host__ bool EasyCheck(uint16_t* hD, uint16_t* dD, uint16_t height, uint16_t wi
 	return true;
 }
 
-// Tworzenie nowego węzła listy
-Node* createNode(uint16_t ind, char letter, OperationType type)
+/**
+ * Tworzenie nowego węzła listy.
+ *
+ * @param ind - indeks, wpisany w Node
+ * @param letter - litera, wpisana w Node
+ * @param type - typ operacji, wpisany w Node
+ *
+ * @return wskaźnik na nowo stworzony węzeł
+ */
+__host__ Node* createNode(uint16_t ind, char letter, OperationType type)
 {
 	Node* newNode = (Node*)malloc(sizeof(Node));
 	if (!newNode)
@@ -388,8 +485,15 @@ Node* createNode(uint16_t ind, char letter, OperationType type)
 	return newNode;
 }
 
-// Dodawanie na początek listy
-void addToFrontList(Node** head, uint16_t ind, char letter, OperationType type)
+/**
+ * Dodanie elementu na początek listy.
+ *
+ * @param head - wskaźnik na wskaźnik na node z początkiem listy wynikowej
+ * @param ind - indeks, wpisany w dodawanego Node
+ * @param letter - litera, wpisana w dodawanego Node
+ * @param type - typ operacji, wpisany w dodawanego Node
+ */
+__host__ void addToFrontList(Node** head, uint16_t ind, char letter, OperationType type)
 {
 	Node* newNode = createNode(ind, letter, type);
 	if (*head == NULL)
@@ -402,8 +506,16 @@ void addToFrontList(Node** head, uint16_t ind, char letter, OperationType type)
 	*head = newNode;
 }
 
-// Dodawanie na koniec listy
-void addToEndList(Node** tail, Node** head, uint16_t ind, char letter, OperationType type)
+/**
+ * Dodanie elementu na koniec listy.
+ *
+ * @param tail - wskaźnik na wskaźnik na node z końcem listy wynikowej
+ * @param head - wskaźnik na wskaźnik na node z początkiem listy wynikowej
+ * @param ind - indeks, wpisany w dodawanego Node
+ * @param letter - litera, wpisana w dodawanego Node
+ * @param type - typ operacji, wpisany w dodawanego Node
+ */
+__host__ void addToEndList(Node** tail, Node** head, uint16_t ind, char letter, OperationType type)
 {
 	Node* newNode = createNode(ind, letter, type);
 	if (*tail == NULL)
@@ -417,8 +529,12 @@ void addToEndList(Node** tail, Node** head, uint16_t ind, char letter, Operation
 	*tail = (*tail)->next;
 }
 
-// Wypisywanie listy wynikowej
-void printList(Node* head)
+/**
+ * Wypisanie listy wynikowej na konsole.
+ *
+ * @param head - wskaźnik na początek listy wynikowej
+ */
+__host__ void printList(Node* head)
 {
 	Node* current = head;
 	while (current != NULL)
@@ -440,8 +556,12 @@ void printList(Node* head)
 	}
 }
 
-// Czyszczenie listy
-void freeList(Node* head)
+/**
+ * Zwolnienie pamięci zajętej przez listę wynikową.
+ *
+ * @param head - wskaźnik na początek listy wynikowej
+ */
+__host__ void freeList(Node* head)
 {
 	Node* current = head;
 	while (current != NULL)
@@ -452,7 +572,20 @@ void freeList(Node* head)
 	}
 }
 
-// Helper function for using CUDA
+/**
+ * Funckja pomocnicza, agregująca główne wywołania w programie CUDA (alokacja pamięci w GPU, zapis danych do GPU, algorytm, odczyt wyników z GPU, zwolnienie pamięci w GPU)
+ *
+ * @param[in] s1 - wskaźnik do tablicy char pierwszego ze słów
+ * @param[in] s2 - wskaźnik do tablicy char drugiego ze słów
+ * @param[in] s1Len - długość słowa s1
+ * @param[in] s2Len - długość słowa s2
+ * @param[out] D - wskaźnik do tablicy wynikowej, gdzie funkcja zapisze D (wymiar: (s1Len + 1) * (s2Len + 1))
+ * @param[out] gpu_prepare_time - wskaźnik na zmienną z czasem, w jakim przygotowywujemy GPU do wywołania kernela (obliczenie parametrów wywołania kernela + alokacja + kopiowanie)
+ * @param[out] calculateD_time - wskaźnik na zmienną z czasem, w jakim wykonujemy funckję obliczania samej tablicy D (bez X)
+ * @param[out] copy_to_h_time - wskaźnik na zmienną z czasem, w jakim kopiujemy dane z GPU do hosta
+ * @param[out] calculateX_time - wskaźnik na zmienną z czasem, w jakim wykonujemy funckję obliczania samej tablicy X (bez D)
+ * @return możliwy error, który zaszedł podczas "CUDA-owych" operacji
+ */
 cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* D, long long* gpu_prepare_time, long long* calculateD_time, long long* copy_to_h_time, long long* calculateX_time)
 {
 	uint16_t* d_X;
@@ -462,13 +595,6 @@ cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint1
 	uint16_t* d_globalDiagArray;
 
 	auto gpu_preapare_ts = high_resolution_clock::now();
-	// Choose which GPU to run on, change this on a multi-GPU system.
-	cudaStatus = cudaSetDevice(0);
-	if (cudaStatus != cudaSuccess)
-	{
-		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
-		goto Error;
-	}
 
 	int dev = 0, blocks = 1, threads = 1;
 	cudaDeviceProp deviceProp;
@@ -545,7 +671,7 @@ cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint1
 	*gpu_prepare_time = 0.001 * duration_cast<microseconds> (gpu_preapare_te - gpu_preapare_ts).count();
 
 	auto gpu_calculateX_ts = high_resolution_clock::now();
-	calculateX<<<1, 32>>>(d_X, d_s2, s2Len);
+	calculateX << <1, 32 >> > (d_X, d_s2, s2Len);
 
 	cudaStatus = cudaDeviceSynchronize();
 	auto gpu_calculateX_te = high_resolution_clock::now();
@@ -557,7 +683,7 @@ cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint1
 
 	*calculateX_time = 0.001 * duration_cast<microseconds> (gpu_calculateX_te - gpu_calculateX_ts).count();
 
-	void* args[] = {(void*)&d_D, (void*)&d_X, (void*)&d_s1, (void*)&d_s2, (void*)&s1Len, (void*)&s2Len, (void*)&d_globalDiagArray};
+	void* args[] = { (void*)&d_D, (void*)&d_X, (void*)&d_s1, (void*)&d_s2, (void*)&s1Len, (void*)&s2Len, (void*)&d_globalDiagArray };
 
 	// initialize, then launch
 	auto gpu_calculateD_ts = high_resolution_clock::now();
@@ -593,6 +719,13 @@ Error:
 	return cudaStatus;
 }
 
+/**
+ * Wypełnia tablice X.
+ *
+ * @param X - wskaźnik do tablicy X w device
+ * @param s2 - wskaźnik na słowo s2 w device
+ * @param s2Len - długość słowa s2
+ */
 __global__ void calculateX(uint16_t* X, char* s2, const uint16_t s2Len)
 {
 	__shared__ uint16_t buffer[ALPHLEN];
@@ -619,6 +752,17 @@ __global__ void calculateX(uint16_t* X, char* s2, const uint16_t s2Len)
 	}
 }
 
+/**
+ * Wypełnia tablice D.
+ *
+ * @param D - wskaźnik do tablicy D w device
+ * @param X - wskaźnik do wypełnionej tablicy X w device
+ * @param s1 - wskaźnik na słowo s1 w device
+ * @param s2 - wskaźnik na słowo s2 w device
+ * @param s1Len - długośc słowa s1
+ * @param s2Len - długość słowa s2
+ * @param globalDiagArray - wskaźnik do tablicy w pamięci globalnej, dzięki której będą przekazywane zmienne podczas działania programu między blokami (długość: ilość bloków)
+ */
 __global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* globalDiagArray)
 {
 	grid_group grid = this_grid();
@@ -659,7 +803,7 @@ __global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const u
 			else if (x == 0)
 				foundVal = 1 + Min(prevVal, diagVal, i + threadIdx.x + blockDim.x * blockIdx.x - 1);
 			else
-				foundVal = 1 + Min(prevVal, diagVal, D[GetDInd(i - 1, x - 1, s2Len + 1)] + threadIdx.x + blockDim.x * blockIdx.x - 1 - x);	
+				foundVal = 1 + Min(prevVal, diagVal, D[GetDInd(i - 1, x - 1, s2Len + 1)] + threadIdx.x + blockDim.x * blockIdx.x - 1 - x);
 
 			D[GetDInd(i, threadIdx.x + blockDim.x * blockIdx.x, s2Len + 1)] = foundVal;
 			prevVal = foundVal;
@@ -674,15 +818,37 @@ __global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const u
 	}
 }
 
-void saveToFile(uint16_t* dD, uint16_t* hD, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len)
+/**
+ * Funkcja rozgrzewająca GPU (nie robi nic ciekawego).
+ *
+ * @param i - parametr ten nie ma znaczenia.
+ */
+__global__ void rozgrzewka(int i)
 {
-	FILE* cpu_outputfile = fopen("CPU_OUTPUTFILE.txt", "w");
+	int res = threadIdx.x * i;
+}
+
+/**
+ * Zapisuje tablice dD oraz hD do pliku. Plik jest w formacie .txt, a dane są rozdzielane przecinkami.
+ *
+ * @param dD - wskaźnik do pierwszej tablicy D
+ * @param hD - wskaźnik do drugiej tablicy D
+ * @param s1 - wskaźnik na słowo s1
+ * @param s2 - wskaźnik na słowo s2
+ * @param s1Len - długośc słowa s1
+ * @param s2Len - długość słowa s2
+ * @param cpu_outputfilepath - ścieżka do pliku, w którym będzie zapisany output tablicy hD
+ * @param gpu_outputfilepath - ścieżka do pliku, w którym będzie zapisany output tablicy dD
+ */
+__host__ void saveToFile(uint16_t* dD, uint16_t* hD, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, char* cpu_outputfilepath, char* gpu_outputfilepath)
+{
+	FILE* cpu_outputfile = fopen(cpu_outputfilepath, "w");
 	if (cpu_outputfile == NULL)
 	{
 		fprintf(stderr, "Nie mozna otworzyc pliku do zapisu wynikow z cpu\n");
 	}
 
-	FILE* gpu_outputfile = fopen("GPU_OUTPUTFILE.txt", "w");
+	FILE* gpu_outputfile = fopen(gpu_outputfilepath, "w");
 	if (gpu_outputfile == NULL)
 	{
 		fprintf(stderr, "Nie mozna otworzyc pliku do zapisu wynikow z gpu\n");
@@ -693,7 +859,7 @@ void saveToFile(uint16_t* dD, uint16_t* hD, char* s1, char* s2, const uint16_t s
 	fwrite(",", sizeof(char), 1, cpu_outputfile);
 	fwrite(" ", sizeof(char), 1, gpu_outputfile);
 	fwrite(",", sizeof(char), 1, gpu_outputfile);
-	
+
 	for (int i = 0; i < s2Len + 1; i++)
 	{
 		if (i == 0)
