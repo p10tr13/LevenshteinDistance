@@ -21,3 +21,7 @@ Opcjonalnie po argumentach trybu mozna dodac sposob wypisana wyniku:
 4. Tryb wypisywania 1 i 2
 5. Tryb wypisywania 2 i 3
 6. Tryb 1, 2 i 3
+
+Dodatkowe informacje:
+dlugosc s1 jest ograniczona do 65000
+dlugosc s2 jest ograniczona mniejsza z nastepujacych dwoch liczb: do iloœci SM w GPU razy 1024 lub 65000
