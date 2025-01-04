@@ -60,7 +60,10 @@ __host__ bool EasyCheck(uint16_t* hD, uint16_t* dD, uint16_t height, uint16_t wi
 __global__ void calculateX(uint16_t* X, char* s2, const uint16_t s2Len);
 __global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* globalDiagArray);
 __global__ void rozgrzewka(int i);
-__host__ void saveToFile(uint16_t* dD, uint16_t* hD, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, char* cpu_outputfilepath, char* gpu_outputfilepath);
+__host__ void wordsLen(char* filepath, int* strLen1, int* strLen2);
+__host__ char* getLineFromFile(FILE* file, int strLen);
+__host__ void saveDToFile(uint16_t* dD, uint16_t* hD, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, char* cpu_outputfilepath, char* gpu_outputfilepath);
+__host__ void savePathToFile(Node* head, char* result_file_path);
 __host__ void howToUse();
 
 // Operacje na liście jednokierunkowej, dla opisywania operacji zmiany s1 na s2
@@ -74,60 +77,79 @@ int main(int argc, char* argv[])
 {
 	cudaError_t cudaStatus;
 	long long cpu_time = 0, gpu_time = 0, gpu_calculateD_time = 0, gpu_prepare_time = 0, gpu_copy_to_h_time = 0, gpu_calculateX_time = 0, cpu_path_time = 0, gpu_path_time = 0;
-	int mode = 0, print_mode = 0;
-	char* s1, * s2;
-
-	srand(time(NULL));
+	int mode = -1, print_mode = -1;
+	char* s1, * s2, * s1_s2_file, * result_file_path;
 
 	if (argc > 4)
 	{
 		print_mode = atoi(argv[4]);
-		if (print_mode < 1 || print_mode > 6)
+		if (print_mode < 0 || print_mode > 6)
 		{
 			howToUse();
 			return 0;
 		}
 	}
-		
+
 	if (argc > 3)
 	{
 		mode = atoi(argv[1]);
 		switch (mode)
 		{
-			case 1:
-			{
-				s1 = argv[2];
-				s2 = argv[3];
-				break;
-			}
-			case 2:
-			{
-				int len1 = atoi(argv[2]), len2 = atoi(argv[3]);
-				if (len1 < 2 || len2 < 2)
-				{
-					howToUse();
-					return 0;
-				}
-
-				s1 = (char*)malloc(sizeof(char) * len1);
-				s2 = (char*)malloc(sizeof(char) * len2);
-
-				for (int i = 0; i < len1 - 1; i++)
-					s1[i] = 'A' + rand() % 26;
-
-				for (int i = 0; i < len2 - 1; i++)
-					s2[i] = 'A' + rand() % 26;
-
-				s1[len1 - 1] = '\0';
-				s2[len2 - 1] = '\0';
-				break;
-			}
-			default:
+		case 1:
+		{
+			s1 = argv[2];
+			s2 = argv[3];
+			break;
+		}
+		case 2:
+		{
+			srand(time(NULL));
+			int len1 = atoi(argv[2]), len2 = atoi(argv[3]);
+			if (len1 < 2 || len2 < 2)
 			{
 				howToUse();
 				return 0;
 			}
+
+			s1 = (char*)malloc(sizeof(char) * len1);
+			s2 = (char*)malloc(sizeof(char) * len2);
+
+			for (int i = 0; i < len1 - 1; i++)
+				s1[i] = 'A' + rand() % 26;
+
+			for (int i = 0; i < len2 - 1; i++)
+				s2[i] = 'A' + rand() % 26;
+
+			s1[len1 - 1] = '\0';
+			s2[len2 - 1] = '\0';
+			break;
 		}
+		default:
+		{
+			howToUse();
+			return 0;
+		}
+		}
+	}
+	else if (argc == 3)
+	{
+		s1_s2_file = argv[1];
+		result_file_path = argv[2];
+		mode = 0;
+		print_mode = 0;
+		int strLen1 = 0, strLen2 = 0;
+		wordsLen(s1_s2_file, &strLen1, &strLen2);
+
+		FILE* file = fopen(s1_s2_file, "r");
+		if (file == NULL)
+		{
+			fprintf(stderr, "Nie mozna otworzyc pliku ze slowami.\n");
+		}
+		
+		s1 = getLineFromFile(file, strLen1);
+		s2 = getLineFromFile(file, strLen2);
+
+		fclose(file);
 	}
 	else
 	{
@@ -168,7 +190,7 @@ int main(int argc, char* argv[])
 		std::cout << "D_GPU Memory Allocation Failed";
 		free(D_CPU);
 		freeList(CPU_result);
-		exit(1);
+		return 0;;
 	}
 
 	// Choose which GPU to run on, change this on a multi-GPU system.
@@ -214,40 +236,45 @@ int main(int argc, char* argv[])
 	// Wypisywanie wyników
 	switch (print_mode)
 	{
-		case 1:
-		{
-			PrintD(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
-			break;
-		}
-		case 2:
-		{
-			printList(GPU_result);
-			break;
-		}
-		case 3:
-		{
-			saveToFile(D_GPU, D_CPU, s1, s2, s1Len, s2Len, CPU_OUTPUTFILEPATH, GPU_OUTPUTFILEPATH);
-			break;
-		}
-		case 4:
-		{
-			PrintD(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
-			printList(GPU_result);
-			break;
-		}
-		case 5:
-		{
-			printList(GPU_result);
-			saveToFile(D_GPU, D_CPU, s1, s2, s1Len, s2Len, CPU_OUTPUTFILEPATH, GPU_OUTPUTFILEPATH);
-			break;
-		}
-		case 6:
-		{
-			PrintD(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
-			printList(GPU_result);
-			saveToFile(D_GPU, D_CPU, s1, s2, s1Len, s2Len, CPU_OUTPUTFILEPATH, GPU_OUTPUTFILEPATH);
-			break;
-		}
+	case 0:
+	{
+		savePathToFile(GPU_result, result_file_path);
+		break;
+	}
+	case 1:
+	{
+		PrintD(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
+		break;
+	}
+	case 2:
+	{
+		printList(GPU_result);
+		break;
+	}
+	case 3:
+	{
+		saveDToFile(D_GPU, D_CPU, s1, s2, s1Len, s2Len, CPU_OUTPUTFILEPATH, GPU_OUTPUTFILEPATH);
+		break;
+	}
+	case 4:
+	{
+		PrintD(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
+		printList(GPU_result);
+		break;
+	}
+	case 5:
+	{
+		printList(GPU_result);
+		saveDToFile(D_GPU, D_CPU, s1, s2, s1Len, s2Len, CPU_OUTPUTFILEPATH, GPU_OUTPUTFILEPATH);
+		break;
+	}
+	case 6:
+	{
+		PrintD(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
+		printList(GPU_result);
+		saveDToFile(D_GPU, D_CPU, s1, s2, s1Len, s2Len, CPU_OUTPUTFILEPATH, GPU_OUTPUTFILEPATH);
+		break;
+	}
 	}
 
 	std::cout << endl << "CPU time: " << setw(7) << 0.001 * cpu_time << " nsec" << endl;
@@ -272,7 +299,7 @@ Error:
 	freeList(GPU_result);
 	free(D_CPU);
 	free(D_GPU);
-	if (mode == 2)
+	if (mode == 2 || mode == 0)
 	{
 		free(s1);
 		free(s2);
@@ -916,6 +943,52 @@ __global__ void rozgrzewka(int i)
 	int res = threadIdx.x * i;
 }
 
+
+__host__ void wordsLen(char* filepath, int* strLen1, int* strLen2)
+{
+	FILE* file = fopen(filepath, "r");
+	if (file == NULL)
+	{
+		fprintf(stderr, "Nie mozna otworzyc pliku ze slowami.\n");
+	}
+
+	int c;
+	int lineNum = 0;
+
+	while ((c = fgetc(file)) != EOF)
+	{
+		if (c == '\n')
+		{
+			lineNum++;
+			if (lineNum == 2)
+				break;
+		}
+		else
+		{
+			if (lineNum == 0)
+				*strLen1 += 1;
+			else
+				*strLen2 += 1;
+		}
+	}
+
+	fclose(file);
+}
+
+
+__host__ char* getLineFromFile(FILE* file, int strLen)
+{
+	char* line = (char*)malloc(sizeof(char) * (strLen + 1));
+
+	char c;
+
+	if (fgets(line, strLen + 1, file) == NULL)
+		printf("Blad przy wczytywaniu slow z pliku.\n");
+	fgetc(file);
+
+	return line;
+}
+
 /**
  * Zapisuje tablice dD oraz hD do pliku. Plik jest w formacie .txt, a dane są rozdzielane przecinkami.
  *
@@ -928,7 +1001,7 @@ __global__ void rozgrzewka(int i)
  * @param cpu_outputfilepath - ścieżka do pliku, w którym będzie zapisany output tablicy hD
  * @param gpu_outputfilepath - ścieżka do pliku, w którym będzie zapisany output tablicy dD
  */
-__host__ void saveToFile(uint16_t* dD, uint16_t* hD, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, char* cpu_outputfilepath, char* gpu_outputfilepath)
+__host__ void saveDToFile(uint16_t* dD, uint16_t* hD, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, char* cpu_outputfilepath, char* gpu_outputfilepath)
 {
 	FILE* cpu_outputfile = fopen(cpu_outputfilepath, "w");
 	if (cpu_outputfile == NULL)
@@ -999,22 +1072,52 @@ __host__ void saveToFile(uint16_t* dD, uint16_t* hD, char* s1, char* s2, const u
 }
 
 /**
+ * Zapisuje liste zamiany s1 na s2 do pliku. Plik powinien byc w formacie .txt, a dane są rozdzielane spacjami.
+ *
+ * @param head - wskaźnik do pierwszego wezla listy wynikowej
+ * @param result_file_path - ścieżka do pliku, w którym będzie zapisany output listy
+ */
+__host__ void savePathToFile(Node* head, char* result_file_path)
+{
+	Node* current = head;
+	FILE* result_file = fopen(result_file_path, "w");
+	if (result_file == NULL)
+	{
+		fprintf(stderr, "Nie mozna otworzyc pliku do zapisu wynikow.\n");
+	}
+
+	while (current != NULL)
+	{
+		switch (current->type)
+		{
+		case ADD:
+		{
+			fprintf(result_file, "I %d %c\n", current->ind, current->letter);
+			break;
+		}
+		case DEL:
+		{
+			fprintf(result_file, "D %d\n", current->ind);
+			break;
+		}
+		case REPLACE:
+		{
+			fprintf(result_file, "R %d %c\n", current->ind, current->letter);
+			break;
+		}
+		}
+		current = current->next;
+	}
+	fclose(result_file);
+}
+
+/**
  * Wypisuje na konsole jak powinno się uruchamiać program.
  */
 __host__ void howToUse()
 {
 	printf("Podano zle argumenty\n");
-	printf("Prawidlowe argumenty: tryb_programu arg2 arg3 (optional) print_mode\n");
-	printf("Przyklad: 1 ala lal 3\n");
-	printf("Program ma nastepujace tryby pracy:\n");
-	printf("1. dwa slowa z liter z przedzialu 'A' - 'Z'\n");
-	printf("2. dwie liczby dodatnie wieksze od 2 (program losuje litery do tych dwoch slow o podanej dlugosci)\n");
-	printf("Opcjonalnie po argumentach trybu mozna dodac sposob wypisana wyniku:\n");
-	printf("1. Wypisanie na konsole tabeli D (GPU)\n");
-	printf("2. Wypisanie na konsole listy zamian s1 na s2 (GPU)\n");
-	printf("3. Zapisanie do plikow tabel D z CPU i GPU\n");
-	printf("4. Tryb wypisywania 1 i 2\n");
-	printf("5. Tryb wypisywania 2 i 3\n");
-	printf("6. Tryb 1, 2 i 3\n");
+	printf("Podstawowe wywolanie programu: s1_s2_txt_file_path txt_output_file_path\n");
+	printf("Sa jeszcze inne tryby pracy, dlatego w przypadku niejasnosci prosze zajrzec w README.md\n");
 	printf("\n");
 }
