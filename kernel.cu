@@ -42,34 +42,34 @@ typedef enum {
 // Węzeł listy
 typedef struct Node
 {
-	uint16_t ind;
+	uint32_t ind;
 	char letter;
 	OperationType type;
 	struct Node* next;
 } Node;
 
-cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* D, long long* gpu_alloc_time, long long* calculateD_time, long long* copy_to_h_time, long long* calculateX_time);
-__host__ uint16_t checkWord(char* s);
-__host__ __device__ uint32_t GetDInd(uint16_t i, uint16_t j, uint16_t width);
-__host__ __device__ uint16_t Min(uint16_t num1, uint16_t num2, uint16_t num3);
-__host__ void CPULevenshtein(char* s1, uint16_t s1Len, char* s2, uint16_t s2Len, uint16_t* D);
-__host__ void PrintD(uint16_t* D, uint16_t height, uint16_t width, char* s1, char* s2);
-__host__ void PrintX(uint16_t* X, uint16_t height, uint16_t width, char* s2);
-__host__ Node* RetrievePath(uint16_t* D, uint16_t height, uint16_t width, char* s1, char* s2);
-__host__ bool EasyCheck(uint16_t* hD, uint16_t* dD, uint16_t height, uint16_t width);
-__global__ void calculateX(uint16_t* X, char* s2, const uint16_t s2Len);
-__global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* globalDiagArray);
+cudaError_t LevenshteinGPU(char* s1, char* s2, const uint32_t s1Len, const uint32_t s2Len, uint32_t* D, long long* gpu_alloc_time, long long* calculateD_time, long long* copy_to_h_time, long long* calculateX_time);
+__host__ uint32_t checkWord(char* s);
+__host__ __device__ uint32_t GetDInd(uint32_t i, uint32_t j, uint32_t width);
+__host__ __device__ uint32_t Min(uint32_t num1, uint32_t num2, uint32_t num3);
+__host__ void CPULevenshtein(char* s1, uint32_t s1Len, char* s2, uint32_t s2Len, uint32_t* D);
+__host__ void PrintD(uint32_t* D, uint32_t height, uint32_t width, char* s1, char* s2);
+__host__ void PrintX(uint32_t* X, uint32_t height, uint32_t width, char* s2);
+__host__ Node* RetrievePath(uint32_t* D, uint32_t height, uint32_t width, char* s1, char* s2);
+__host__ bool EasyCheck(uint32_t* hD, uint32_t* dD, uint32_t height, uint32_t width);
+__global__ void calculateX(uint32_t* X, char* s2, const uint32_t s2Len);
+__global__ void calculateD(uint32_t* D, uint32_t* X, char* s1, char* s2, const uint32_t s1Len, const uint32_t s2Len, uint32_t* globalDiagArray);
 __global__ void rozgrzewka(int i);
 __host__ void wordsLen(char* filepath, int* strLen1, int* strLen2);
 __host__ char* getLineFromFile(FILE* file, int strLen);
-__host__ void saveDToFile(uint16_t* dD, uint16_t* hD, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, char* cpu_outputfilepath, char* gpu_outputfilepath);
+__host__ void saveDToFile(uint32_t* dD, uint32_t* hD, char* s1, char* s2, const uint32_t s1Len, const uint32_t s2Len, char* cpu_outputfilepath, char* gpu_outputfilepath);
 __host__ void savePathToFile(Node* head, char* result_file_path);
 __host__ void howToUse();
 
 // Operacje na liście jednokierunkowej, dla opisywania operacji zmiany s1 na s2
-__host__ Node* createNode(uint16_t ind, char letter, OperationType type);
-__host__ void addToFrontList(Node** head, uint16_t ind, char letter, OperationType type);
-__host__ void addToEndList(Node** tail, Node** head, uint16_t ind, char letter, OperationType type);
+__host__ Node* createNode(uint32_t ind, char letter, OperationType type);
+__host__ void addToFrontList(Node** head, uint32_t ind, char letter, OperationType type);
+__host__ void addToEndList(Node** tail, Node** head, uint32_t ind, char letter, OperationType type);
 __host__ void printList(Node* head);
 __host__ void freeList(Node* head);
 
@@ -158,14 +158,14 @@ int main(int argc, char* argv[])
 	}
 
 	// Sprawdzenie poprawności słow s1 i s2
-	uint16_t s1Len = checkWord(s1), s2Len = checkWord(s2);
+	uint32_t s1Len = checkWord(s1), s2Len = checkWord(s2);
 	if (s1Len == 0 || s2Len == 0)
 	{
 		printf("Podane slowa sa niepoprawne!\n");
 		return 0;
 	}
 
-	uint16_t* D_CPU = (uint16_t*)malloc(sizeof(uint16_t) * (s1Len + 1) * (s2Len + 1));
+	uint32_t* D_CPU = (uint32_t*)malloc(sizeof(uint32_t) * (s1Len + 1) * (s2Len + 1));
 	if (D_CPU == NULL)
 	{
 		std::cout << "D_CPU Memory Allocation Failed";
@@ -184,7 +184,7 @@ int main(int argc, char* argv[])
 	auto cpu_path_te = high_resolution_clock::now();
 	cpu_path_time += duration_cast<microseconds> (cpu_path_te - cpu_path_ts).count();
 
-	uint16_t* D_GPU = (uint16_t*)malloc(sizeof(uint16_t) * (s1Len + 1) * (s2Len + 1));
+	uint32_t* D_GPU = (uint32_t*)malloc(sizeof(uint32_t) * (s1Len + 1) * (s2Len + 1));
 	if (D_GPU == NULL)
 	{
 		std::cout << "D_GPU Memory Allocation Failed";
@@ -314,7 +314,7 @@ Error:
  *
  * @return długość słowa
  */
-__host__ uint16_t checkWord(char* s)
+__host__ uint32_t checkWord(char* s)
 {
 	int i = 0;
 	while (s[i] != '\0')
@@ -335,7 +335,7 @@ __host__ uint16_t checkWord(char* s)
  *
  * @return indeks w tablicy jednowymiarowej
  */
-__host__ __device__ uint32_t GetDInd(uint16_t i, uint16_t j, uint16_t width)
+__host__ __device__ uint32_t GetDInd(uint32_t i, uint32_t j, uint32_t width)
 {
 	return i * width + j;
 }
@@ -349,7 +349,7 @@ __host__ __device__ uint32_t GetDInd(uint16_t i, uint16_t j, uint16_t width)
  *
  * @return najmniejsza liczba z trzech
  */
-__host__ __device__ uint16_t Min(uint16_t num1, uint16_t num2, uint16_t num3)
+__host__ __device__ uint32_t Min(uint32_t num1, uint32_t num2, uint32_t num3)
 {
 	if (num1 <= num2 && num1 <= num3)
 		return num1;
@@ -367,11 +367,11 @@ __host__ __device__ uint16_t Min(uint16_t num1, uint16_t num2, uint16_t num3)
  * @param[in] s2Len - długość słowa s2
  * @param[out] D - tablica, w której zapisywany jest wynik
  */
-__host__ void CPULevenshtein(char* s1, uint16_t s1Len, char* s2, uint16_t s2Len, uint16_t* D)
+__host__ void CPULevenshtein(char* s1, uint32_t s1Len, char* s2, uint32_t s2Len, uint32_t* D)
 {
-	for (uint16_t i = 0; i < s1Len + 1; i++)
+	for (uint32_t i = 0; i < s1Len + 1; i++)
 	{
-		for (uint16_t j = 0; j < s2Len + 1; j++)
+		for (uint32_t j = 0; j < s2Len + 1; j++)
 		{
 			if (i == 0)
 				D[GetDInd(i, j, s2Len + 1)] = j;
@@ -394,7 +394,7 @@ __host__ void CPULevenshtein(char* s1, uint16_t s1Len, char* s2, uint16_t s2Len,
  * @param s1 - wskaźnik na słowo s1
  * @param s2 - wskaźnik na słowo s2
  */
-__host__ void PrintD(uint16_t* D, uint16_t height, uint16_t width, char* s1, char* s2)
+__host__ void PrintD(uint32_t* D, uint32_t height, uint32_t width, char* s1, char* s2)
 {
 	printf("\n");
 	printf("   |");
@@ -442,7 +442,7 @@ __host__ void PrintD(uint16_t* D, uint16_t height, uint16_t width, char* s1, cha
  * @param width - szerokość tablicy X
  * @param s2 - wskaźnik na słowo s2
  */
-__host__ void PrintX(uint16_t* X, uint16_t height, uint16_t width, char* s2)
+__host__ void PrintX(uint32_t* X, uint32_t height, uint32_t width, char* s2)
 {
 	printf("  ");
 	for (int i = 0; i < width; i++)
@@ -477,7 +477,7 @@ __host__ void PrintX(uint16_t* X, uint16_t height, uint16_t width, char* s2)
  *
  * @return wskaźnik na początek listy przekształceń
  */
-__host__ Node* RetrievePath(uint16_t* D, uint16_t height, uint16_t width, char* s1, char* s2)
+__host__ Node* RetrievePath(uint32_t* D, uint32_t height, uint32_t width, char* s1, char* s2)
 {
 	int i = height - 1, j = width - 1, added = 0, maxToAdd;
 	Node* listHead = NULL, * listTail = NULL;
@@ -546,14 +546,14 @@ __host__ Node* RetrievePath(uint16_t* D, uint16_t height, uint16_t width, char* 
  *
  * @return wynik sprawdzania identyczności tablic
  */
-__host__ bool EasyCheck(uint16_t* hD, uint16_t* dD, uint16_t height, uint16_t width)
+__host__ bool EasyCheck(uint32_t* hD, uint32_t* dD, uint32_t height, uint32_t width)
 {
 	int len = height * width;
 	for (int i = 0; i < len; i++)
 	{
 		if (hD[i] != dD[i])
 		{
-			uint16_t hel1 = hD[i], hel2 = dD[i];
+			uint32_t hel1 = hD[i], hel2 = dD[i];
 			return false;
 		}
 	}
@@ -569,7 +569,7 @@ __host__ bool EasyCheck(uint16_t* hD, uint16_t* dD, uint16_t height, uint16_t wi
  *
  * @return wskaźnik na nowo stworzony węzeł
  */
-__host__ Node* createNode(uint16_t ind, char letter, OperationType type)
+__host__ Node* createNode(uint32_t ind, char letter, OperationType type)
 {
 	Node* newNode = (Node*)malloc(sizeof(Node));
 	if (!newNode)
@@ -592,7 +592,7 @@ __host__ Node* createNode(uint16_t ind, char letter, OperationType type)
  * @param letter - litera, wpisana w dodawanego Node
  * @param type - typ operacji, wpisany w dodawanego Node
  */
-__host__ void addToFrontList(Node** head, uint16_t ind, char letter, OperationType type)
+__host__ void addToFrontList(Node** head, uint32_t ind, char letter, OperationType type)
 {
 	Node* newNode = createNode(ind, letter, type);
 	if (*head == NULL)
@@ -614,7 +614,7 @@ __host__ void addToFrontList(Node** head, uint16_t ind, char letter, OperationTy
  * @param letter - litera, wpisana w dodawanego Node
  * @param type - typ operacji, wpisany w dodawanego Node
  */
-__host__ void addToEndList(Node** tail, Node** head, uint16_t ind, char letter, OperationType type)
+__host__ void addToEndList(Node** tail, Node** head, uint32_t ind, char letter, OperationType type)
 {
 	Node* newNode = createNode(ind, letter, type);
 	if (*tail == NULL)
@@ -686,13 +686,13 @@ __host__ void freeList(Node* head)
  * @param[out] calculateX_time - wskaźnik na zmienną z czasem, w jakim wykonujemy funckję obliczania samej tablicy X (bez D)
  * @return możliwy error, który zaszedł podczas "CUDA-owych" operacji
  */
-cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* D, long long* gpu_prepare_time, long long* calculateD_time, long long* copy_to_h_time, long long* calculateX_time)
+cudaError_t LevenshteinGPU(char* s1, char* s2, const uint32_t s1Len, const uint32_t s2Len, uint32_t* D, long long* gpu_prepare_time, long long* calculateD_time, long long* copy_to_h_time, long long* calculateX_time)
 {
-	uint16_t* d_X;
-	uint16_t* d_D;
+	uint32_t* d_X;
+	uint32_t* d_D;
 	char* d_s1, * d_s2;
 	cudaError_t cudaStatus;
-	uint16_t* d_globalDiagArray;
+	uint32_t* d_globalDiagArray;
 
 	auto gpu_preapare_ts = high_resolution_clock::now();
 
@@ -718,21 +718,21 @@ cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint1
 	else
 		threads = (((s2Len + 1) - (s2Len + 1) % WARPSIZE) / WARPSIZE + 1) * WARPSIZE;
 
-	cudaStatus = cudaMalloc(&d_X, (s2Len + 1) * ALPHLEN * sizeof(uint16_t));
+	cudaStatus = cudaMalloc(&d_X, (s2Len + 1) * ALPHLEN * sizeof(uint32_t));
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "d_X cudaMalloc failed!");
 		goto Error;
 	}
 
-	cudaStatus = cudaMalloc(&d_D, (s1Len + 1) * (s2Len + 1) * sizeof(uint16_t));
+	cudaStatus = cudaMalloc(&d_D, (s1Len + 1) * (s2Len + 1) * sizeof(uint32_t));
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "d_D cudaMalloc failed!");
 		goto Error;
 	}
 
-	cudaStatus = cudaMalloc(&d_globalDiagArray, blocks * sizeof(uint16_t));
+	cudaStatus = cudaMalloc(&d_globalDiagArray, blocks * sizeof(uint32_t));
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "d_globalDiagArray cudaMalloc failed!");
@@ -800,7 +800,7 @@ cudaError_t LevenshteinGPU(char* s1, char* s2, const uint16_t s1Len, const uint1
 	*calculateD_time = duration_cast<microseconds> (gpu_calculateD_te - gpu_calculateD_ts).count();
 
 	auto gpu_memory_back_ts = high_resolution_clock::now();
-	cudaStatus = cudaMemcpy(D, d_D, (s1Len + 1) * (s2Len + 1) * sizeof(uint16_t), cudaMemcpyDeviceToHost);
+	cudaStatus = cudaMemcpy(D, d_D, (s1Len + 1) * (s2Len + 1) * sizeof(uint32_t), cudaMemcpyDeviceToHost);
 	auto gpu_memory_back_te = high_resolution_clock::now();
 	if (cudaStatus != cudaSuccess)
 	{
@@ -826,14 +826,14 @@ Error:
  * @param s2 - wskaźnik na słowo s2 w device
  * @param s2Len - długość słowa s2
  */
-__global__ void calculateX(uint16_t* X, char* s2, const uint16_t s2Len)
+__global__ void calculateX(uint32_t* X, char* s2, const uint32_t s2Len)
 {
-	__shared__ uint16_t buffer[ALPHLEN];
+	__shared__ uint32_t buffer[ALPHLEN];
 
 	if (threadIdx.x < ALPHLEN)
 	{
-		uint16_t prev = 0;
-		uint16_t num = 0;
+		uint32_t prev = 0;
+		uint32_t num = 0;
 		for (int i = 0; i < s2Len + 1; i++)
 		{
 			if (i == 0)
@@ -847,7 +847,7 @@ __global__ void calculateX(uint16_t* X, char* s2, const uint16_t s2Len)
 			prev = num;
 
 			if (threadIdx.x == 0)
-				memcpy(X + ALPHLEN * i, buffer, ALPHLEN * sizeof(uint16_t));
+				memcpy(X + ALPHLEN * i, buffer, ALPHLEN * sizeof(uint32_t));
 		}
 	}
 }
@@ -863,16 +863,16 @@ __global__ void calculateX(uint16_t* X, char* s2, const uint16_t s2Len)
  * @param s2Len - długość słowa s2
  * @param globalDiagArray - wskaźnik do tablicy w pamięci globalnej, dzięki której będą przekazywane zmienne podczas działania programu między blokami (długość: ilość bloków)
  */
-__global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, uint16_t* globalDiagArray)
+__global__ void calculateD(uint32_t* D, uint32_t* X, char* s1, char* s2, const uint32_t s1Len, const uint32_t s2Len, uint32_t* globalDiagArray)
 {
 	grid_group grid = this_grid();
-	__shared__ uint16_t sharedDiagArray[WARPSINBLOCK - 1]; // Tablica do wymiany zmiennych diagonalnych w danym bloku
+	__shared__ uint32_t sharedDiagArray[WARPSINBLOCK - 1]; // Tablica do wymiany zmiennych diagonalnych w danym bloku
 
 	if (threadIdx.x + blockIdx.x * blockDim.x < s2Len + 1)
 	{
-		uint16_t Xcol[ALPHLEN];
+		uint32_t Xcol[ALPHLEN];
 		char s1c, s2c; // s1c - litera iteracji, s2c - litera w danej kolumnie
-		uint16_t foundVal = threadIdx.x + blockDim.x * blockIdx.x, prevVal = threadIdx.x + blockDim.x * blockIdx.x, diagVal, x;
+		uint32_t foundVal = threadIdx.x + blockDim.x * blockIdx.x, prevVal = threadIdx.x + blockDim.x * blockIdx.x, diagVal, x;
 
 		// diagVal - to wartość D[i-1,j-1], dla aktualnej iteracji (wartość po przekątnej w tabeli)
 		// prevVal - to wartość D[i-1,j], dla aktualnej iteracji (wartość o jeden wyżej w tabeli)
@@ -882,7 +882,7 @@ __global__ void calculateD(uint16_t* D, uint16_t* X, char* s1, char* s2, const u
 		if (threadIdx.x + blockDim.x * blockIdx.x != 0)
 			memcpy(&s2c, s2 + threadIdx.x + blockDim.x * blockIdx.x - 1, sizeof(char));
 		// Pobranie całej kolumny tablicy X dla każdego wątku (bo jeden wątek będzie tylko korzystał z tej samej "swojej" kolumny w tablicy X)
-		memcpy(Xcol, X + ALPHLEN * (threadIdx.x + blockDim.x * blockIdx.x), ALPHLEN * sizeof(uint16_t));
+		memcpy(Xcol, X + ALPHLEN * (threadIdx.x + blockDim.x * blockIdx.x), ALPHLEN * sizeof(uint32_t));
 
 		for (int i = 0; i < s1Len + 1; i++)
 		{
@@ -943,7 +943,13 @@ __global__ void rozgrzewka(int i)
 	int res = threadIdx.x * i;
 }
 
-
+/**
+ * Zapisuje liste zamiany s1 na s2 do pliku. Plik powinien byc w formacie .txt, a dane są rozdzielane spacjami.
+ *
+ * @param filepath - nazwa/sciezka do pliku, w którym są słowa do policzenia
+ * @param strLen1 - wskaźnik do zmiennej, w której zapiszemy długość słowa 1
+ * @param strLen2 - wskaźnik do zmiennej, w której zapiszemy długość słowa 2
+ */
 __host__ void wordsLen(char* filepath, int* strLen1, int* strLen2)
 {
 	FILE* file = fopen(filepath, "r");
@@ -975,7 +981,12 @@ __host__ void wordsLen(char* filepath, int* strLen1, int* strLen2)
 	fclose(file);
 }
 
-
+/**
+ * Pobiera jedną linie o dlugosci strLen z pliku .txt i zapisuje jej zawartość w zwracanej tabeli
+ *
+ * @param file - wskaźnik do otwartego pliku
+ * @param strLen - dlugosc linii do wczytania
+ */
 __host__ char* getLineFromFile(FILE* file, int strLen)
 {
 	char* line = (char*)malloc(sizeof(char) * (strLen + 1));
@@ -1001,7 +1012,7 @@ __host__ char* getLineFromFile(FILE* file, int strLen)
  * @param cpu_outputfilepath - ścieżka do pliku, w którym będzie zapisany output tablicy hD
  * @param gpu_outputfilepath - ścieżka do pliku, w którym będzie zapisany output tablicy dD
  */
-__host__ void saveDToFile(uint16_t* dD, uint16_t* hD, char* s1, char* s2, const uint16_t s1Len, const uint16_t s2Len, char* cpu_outputfilepath, char* gpu_outputfilepath)
+__host__ void saveDToFile(uint32_t* dD, uint32_t* hD, char* s1, char* s2, const uint32_t s1Len, const uint32_t s2Len, char* cpu_outputfilepath, char* gpu_outputfilepath)
 {
 	FILE* cpu_outputfile = fopen(cpu_outputfilepath, "w");
 	if (cpu_outputfile == NULL)
