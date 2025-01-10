@@ -204,7 +204,7 @@ int main(int argc, char* argv[])
 	}
 
 	// Funkcja rozgrzewkowa (nic nie robiąca)
-	rozgrzewka << <1, 32 >> > (1);
+	rozgrzewka <<<1, 32 >>> (1);
 	cudaStatus = cudaDeviceSynchronize();
 	if (cudaStatus != cudaSuccess)
 	{
@@ -225,9 +225,12 @@ int main(int argc, char* argv[])
 
 	// Sprawdzenie czy oba wyniki są identyczne
 	if (EasyCheck(D_CPU, D_GPU, s1Len + 1, s2Len + 1))
-		printf("Macierze D sa takie same :)\n");
+		printf("Macierze D z CPU i GPU sa takie same :)\n");
 	else
-		printf("Macierze D sa inne!!\n");
+		printf("Macierze D z CPU i GPU sa inne!\n");
+
+	printf("Wynik z CPU: %d\n", D_CPU[(s1Len + 1) * (s2Len + 1) - 1]);
+	printf("Wynik z GPU: %d\n", D_GPU[(s1Len + 1) * (s2Len + 1) - 1]);
 
 	// Obliczanie przekształceń s1 na s2 z tablicy obliczonej przez GPU
 	auto gpu_path_ts = high_resolution_clock::now();
