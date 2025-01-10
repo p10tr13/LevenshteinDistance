@@ -76,7 +76,7 @@ __host__ void freeList(Node* head);
 int main(int argc, char* argv[])
 {
 	cudaError_t cudaStatus;
-	long long cpu_time = 0, gpu_time = 0, gpu_calculateD_time = 0, gpu_prepare_time = 0, gpu_copy_to_h_time = 0, gpu_calculateX_time = 0, cpu_path_time = 0, gpu_path_time = 0;
+	long long cpu_time = 0, gpu_time = 0, gpu_calculateD_time = 0, gpu_prepare_time = 0, gpu_copy_to_h_time = 0, gpu_calculateX_time = 0, cpu_path_time = 0, gpu_path_time = 0, save_to_file_time = 0;
 	int mode = -1, print_mode = -1;
 	char* s1, * s2, * s1_s2_file, * result_file_path;
 
@@ -145,7 +145,7 @@ int main(int argc, char* argv[])
 		{
 			fprintf(stderr, "Nie mozna otworzyc pliku ze slowami.\n");
 		}
-		
+
 		s1 = getLineFromFile(file, strLen1);
 		s2 = getLineFromFile(file, strLen2);
 
@@ -164,6 +164,8 @@ int main(int argc, char* argv[])
 		printf("Podane slowa sa niepoprawne!\n");
 		return 0;
 	}
+
+	printf("\nDlugosci slow s1: %d, s2: %d\n", s1Len, s2Len);
 
 	uint32_t* D_CPU = (uint32_t*)malloc(sizeof(uint32_t) * (s1Len + 1) * (s2Len + 1));
 	if (D_CPU == NULL)
@@ -223,9 +225,9 @@ int main(int argc, char* argv[])
 
 	// Sprawdzenie czy oba wyniki są identyczne
 	if (EasyCheck(D_CPU, D_GPU, s1Len + 1, s2Len + 1))
-		printf("\nMacierze D sa takie same :)\n");
+		printf("Macierze D sa takie same :)\n");
 	else
-		printf("\nMacierze D sa inne!!\n");
+		printf("Macierze D sa inne!!\n");
 
 	// Obliczanie przekształceń s1 na s2 z tablicy obliczonej przez GPU
 	auto gpu_path_ts = high_resolution_clock::now();
@@ -238,7 +240,15 @@ int main(int argc, char* argv[])
 	{
 	case 0:
 	{
+		if (mode != 0)
+		{
+			printf("Nie da sie zapisac pliku bez sciezki.\n");
+			break;
+		}
+		auto save_to_file_ts = high_resolution_clock::now();
 		savePathToFile(GPU_result, result_file_path);
+		auto save_to_file_te = high_resolution_clock::now();
+		save_to_file_time = duration_cast<microseconds> (save_to_file_te - save_to_file_ts).count();
 		break;
 	}
 	case 1:
@@ -286,6 +296,8 @@ int main(int argc, char* argv[])
 	std::cout << "Copy to host GPU time: " << setw(7) << 0.001 * gpu_copy_to_h_time << " nsec" << endl;
 	std::cout << "RetrievePath CPU time: " << setw(7) << 0.001 * cpu_path_time << " nsec" << endl;
 	std::cout << "RetrievePath GPU time: " << setw(7) << 0.001 * gpu_path_time << " nsec" << endl;
+	if (print_mode == 0)
+		std::cout << "Save results to file time: " << setw(7) << 0.001 * save_to_file_time << " nsec" << endl;
 
 	cudaStatus = cudaDeviceReset();
 	if (cudaStatus != cudaSuccess)
@@ -828,8 +840,6 @@ Error:
  */
 __global__ void calculateX(uint32_t* X, char* s2, const uint32_t s2Len)
 {
-	__shared__ uint32_t buffer[ALPHLEN];
-
 	if (threadIdx.x < ALPHLEN)
 	{
 		uint32_t prev = 0;
@@ -843,11 +853,8 @@ __global__ void calculateX(uint32_t* X, char* s2, const uint32_t s2Len)
 			else
 				num = prev;
 
-			buffer[threadIdx.x] = num;
+			X[ALPHLEN * i + threadIdx.x] = num;
 			prev = num;
-
-			if (threadIdx.x == 0)
-				memcpy(X + ALPHLEN * i, buffer, ALPHLEN * sizeof(uint32_t));
 		}
 	}
 }
@@ -880,7 +887,7 @@ __global__ void calculateD(uint32_t* D, uint32_t* X, char* s1, char* s2, const u
 
 		// Pobranie litery (odpowiadającej kolumnie), z której będzie korzystał wątek w algorytmie
 		if (threadIdx.x + blockDim.x * blockIdx.x != 0)
-			memcpy(&s2c, s2 + threadIdx.x + blockDim.x * blockIdx.x - 1, sizeof(char));
+			s2c = s2[threadIdx.x + blockDim.x * blockIdx.x - 1];
 		// Pobranie całej kolumny tablicy X dla każdego wątku (bo jeden wątek będzie tylko korzystał z tej samej "swojej" kolumny w tablicy X)
 		memcpy(Xcol, X + ALPHLEN * (threadIdx.x + blockDim.x * blockIdx.x), ALPHLEN * sizeof(uint32_t));
 
