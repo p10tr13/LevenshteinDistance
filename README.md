@@ -1,26 +1,126 @@
-Instrukcja obsługi programu
+# CUDA Levenshtein Distance Calculator
 
-Podstawowe wywołanie programu: s1_s2_txt_file_path txt_output_file_path gdzie:
+A high-performance CUDA-based implementation for calculating the **Levenshtein distance** between two strings.  
+Supports multiple modes of operation, including reading from files, direct input, and random string generation.
 
-s1_s2_txt_file_path - to plik .txt, w którym w pierwszej linii jest s1, a w drugiej s2  
-txt_output_file_path - scieżka do pliku, gdzie mają być zapisane operacje przekształcania słowa s1 na s2
+## 🚀 Features
 
-Można jeszcze wywołać program w poniższy sposób:
+- **GPU-accelerated** Levenshtein distance calculation
+- Multiple **input modes** (file-based, manual, random)
+- Optional **output modes** for detailed debugging and analysis
+- **CPU vs GPU** matrix comparison
+- Simple **command-line interface**
 
-Prawidłowe argumenty: zaawansowany_tryb_programu arg2 arg3 (optional) print_mode  
-Przykład: 1 ala lal 3
+## 📦 Basic Usage
 
-Zaawansowane tryby pracy:
-1. dwa słowa z liter z przedziału 'A' - 'Z'
-2. dwie liczby dodatnie większe od 2 (program losuje litery do tych dwóch słów o podanej dlugości)
+```bash
+./LevenshteinDistance s1_s2_txt_file_path txt_output_file_path
+```
 
-Opcjonalnie po argumentach trybu można dodać sposób wypisania wyniku:
-1. Wypisanie na konsole tabeli D (tylko GPU)
-2. Wypisanie na konsole listy zamian s1 na s2 (tylko GPU)
-3. Zapisanie do plików tabel D z CPU i GPU
-4. Tryb wypisywania 1 i 2
-5. Tryb wypisywania 2 i 3
-6. Tryb 1, 2 i 3
+**Arguments:**
 
-Dodatkowe informacje:
-Długość s2 jest ograniczona do ilości SM w GPU razy 1024 
+- **`s1_s2_txt_file_path`** – Path to a `.txt` file where:  
+  - Line 1: `s1`  
+  - Line 2: `s2`
+- **`txt_output_file_path`** – Path to the output file where the transformation steps from `s1` to `s2` will be saved.
+
+**Example:**
+
+```bash
+./LevenshteinDistance input.txt output.txt
+```
+
+### **Input**
+Example `input.txt`:
+
+```
+JEONJU
+SUWON
+```
+
+### **Output**
+Transformation steps from `s1` to `s2` will be saved in the following format:
+- in case of addition of a letter `A [index] [new letter]`
+- in case of deletion of a letter `D [index]`
+- in case of replecement of a letter `R [index] [new letter]`
+
+Example `input.txt`:
+
+```
+D 5
+D 4
+R 1 W
+R 0 U
+A 0 S
+```
+
+## ⚙️ Advanced Usage
+
+```bash
+./LevenshteinDistance advanced_mode arg2 arg3 [print_mode]
+```
+
+**Example:**
+
+```bash
+./LevenshteinDistance 1 ALA LAL 2
+```
+
+### Advanced Modes
+
+| Mode | Description                                                                                                                  |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 1    | Two words consisting of letters in the range `A`–`Z`.                                                                        |
+| 2    | Two positive integers greater than 2 — program generates two random strings of the given lengths (letters in range `A`–`Z`). |
+
+## 🔈 Output Modes (`print_mode`)
+
+Optional parameter to control the output format:
+
+| Value | Output Description                                              |
+| ----- | --------------------------------------------------------------- |
+| 1     | Print matrix **D** to console (**GPU only**)                    |
+| 2     | Print transformation steps from `s1` to `s2` (**GPU only**)     |
+| 3     | Save **D** matrices from both CPU and GPU computations to files |
+| 4     | Combine modes **1** and **2**                                   |
+| 5     | Combine modes **2** and **3**                                   |
+| 6     | Combine modes **1**, **2**, and **3**                           |
+
+## 📌 Notes
+
+* Maximum length of `s2` =
+  **(Number of Streaming Multiprocessors on GPU) × 1024**
+  (due to CUDA thread block configuration)
+
+## 📄 Example Output
+
+If `input.txt` contains:
+
+```
+KITTEN
+SITTING
+```
+
+Running:
+
+```bash
+./LevenshteinDistance input.txt output.txt
+```
+
+Might produce `output.txt`:
+
+```
+A 6 G
+R 4 I
+R 0 S
+```
+
+## 🛠️ Requirements
+
+* CUDA-capable GPU
+* NVIDIA CUDA Toolkit installed
+* C++17 compiler
+
+## 📜 License
+
+This project is released under the MIT License.
