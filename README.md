@@ -3,6 +3,10 @@
 A high-performance CUDA-based implementation for calculating the **Levenshtein distance** between two strings.  
 Supports multiple modes of operation, including reading from files, direct input, and random string generation.
 
+This project was developed based on the research article:
+["A parallel approximate string matching under Levenshtein distance on graphics processing units using warp-shuffle operations" (PLOS ONE, 2017)](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0186251)
+It was created as part of the academic course **Graphic Processors in Computational Applications** during the 2024/2025 winter semester at Warsaw University of Technology.
+
 ## 🚀 Features
 
 - **GPU-accelerated** Levenshtein distance calculation
