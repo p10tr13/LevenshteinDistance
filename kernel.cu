@@ -31,15 +31,15 @@ using namespace std::chrono;
 
 #define CPU_OUTPUTFILEPATH "CPU_OUTPUTFILE.txt"
 
-// Struktura listy jednokierunkowej, dla opisywania operacji zmiany s1 na s2
-// Typ operacji
+// Structure of a single linked list for operations of changing s1 to s2
+// Operation type
 typedef enum {
 	ADD,
 	DEL,
 	REPLACE
 } OperationType;
 
-// Węzeł listy
+// List Node
 typedef struct Node
 {
 	uint32_t ind;
@@ -66,7 +66,7 @@ __host__ void saveDToFile(uint32_t* dD, uint32_t* hD, char* s1, char* s2, const 
 __host__ void savePathToFile(Node* head, char* result_file_path);
 __host__ void howToUse();
 
-// Operacje na liście jednokierunkowej, dla opisywania operacji zmiany s1 na s2
+// Functions prototypes for single linked list operations
 __host__ Node* createNode(uint32_t ind, char letter, OperationType type);
 __host__ void addToFrontList(Node** head, uint32_t ind, char letter, OperationType type);
 __host__ void addToEndList(Node** tail, Node** head, uint32_t ind, char letter, OperationType type);
@@ -157,7 +157,7 @@ int main(int argc, char* argv[])
 		return 0;
 	}
 
-	// Sprawdzenie poprawności słow s1 i s2
+	// Checking if the words are valid
 	uint32_t s1Len = checkWord(s1), s2Len = checkWord(s2);
 	if (s1Len == 0 || s2Len == 0)
 	{
@@ -174,13 +174,13 @@ int main(int argc, char* argv[])
 		exit(1);
 	}
 
-	// Obliczanie D na CPU
+	// Calculating D matrix on CPU
 	auto cpu_ts = high_resolution_clock::now();
 	CPULevenshtein(s1, s1Len, s2, s2Len, D_CPU);
 	auto cpu_te = high_resolution_clock::now();
 	cpu_time += duration_cast<microseconds> (cpu_te - cpu_ts).count();
 
-	// Obliczanie przekształceń s1 na s2 z tablicy obliczonej przez CPU
+	// Extraction of transformations of string s1 from matrix calculated on the CPU
 	auto cpu_path_ts = high_resolution_clock::now();
 	Node* CPU_result = RetrievePath(D_CPU, s1Len + 1, s2Len + 1, s1, s2);
 	auto cpu_path_te = high_resolution_clock::now();
@@ -203,7 +203,7 @@ int main(int argc, char* argv[])
 		goto Error;
 	}
 
-	// Funkcja rozgrzewkowa (nic nie robiąca)
+	// Warm up function to ensure the GPU is ready for calculations
 	rozgrzewka <<<1, 32 >>> (1);
 	cudaStatus = cudaDeviceSynchronize();
 	if (cudaStatus != cudaSuccess)
@@ -212,7 +212,7 @@ int main(int argc, char* argv[])
 		goto Error;
 	}
 
-	// Obliczanie D na GPU
+	// Calculating D matrix on GPU
 	auto gpu_ts = high_resolution_clock::now();
 	cudaStatus = LevenshteinGPU(s1, s2, s1Len, s2Len, D_GPU, &gpu_prepare_time, &gpu_calculateD_time, &gpu_copy_to_h_time, &gpu_calculateX_time);
 	auto gpu_te = high_resolution_clock::now();
@@ -223,7 +223,7 @@ int main(int argc, char* argv[])
 		goto Error;
 	}
 
-	// Sprawdzenie czy oba wyniki są identyczne
+	// Checking if the D matrices calculated on CPU and GPU are the same
 	if (EasyCheck(D_CPU, D_GPU, s1Len + 1, s2Len + 1))
 		printf("Macierze D z CPU i GPU sa takie same :)\n");
 	else
@@ -232,13 +232,13 @@ int main(int argc, char* argv[])
 	printf("Wynik z CPU: %d\n", D_CPU[(s1Len + 1) * (s2Len + 1) - 1]);
 	printf("Wynik z GPU: %d\n", D_GPU[(s1Len + 1) * (s2Len + 1) - 1]);
 
-	// Obliczanie przekształceń s1 na s2 z tablicy obliczonej przez GPU
+	// Extraction of transformations of string s1 from matrix calculated on the GPU
 	auto gpu_path_ts = high_resolution_clock::now();
 	Node* GPU_result = RetrievePath(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
 	auto gpu_path_te = high_resolution_clock::now();
 	gpu_path_time += duration_cast<microseconds> (gpu_path_te - gpu_path_ts).count();
 
-	// Wypisywanie wyników
+	// Printing the results based on the selected print mode
 	switch (print_mode)
 	{
 	case 0:
@@ -800,7 +800,7 @@ cudaError_t LevenshteinGPU(char* s1, char* s2, const uint32_t s1Len, const uint3
 
 	void* args[] = { (void*)&d_D, (void*)&d_X, (void*)&d_s1, (void*)&d_s2, (void*)&s1Len, (void*)&s2Len, (void*)&d_globalDiagArray };
 
-	// initialize, then launch
+	// Initialize, then launch
 	auto gpu_calculateD_ts = high_resolution_clock::now();
 	cudaLaunchCooperativeKernel((void*)calculateD, blocks, threads, args);
 
@@ -876,39 +876,39 @@ __global__ void calculateX(uint32_t* X, char* s2, const uint32_t s2Len)
 __global__ void calculateD(uint32_t* D, uint32_t* X, char* s1, char* s2, const uint32_t s1Len, const uint32_t s2Len, uint32_t* globalDiagArray)
 {
 	grid_group grid = this_grid();
-	__shared__ uint32_t sharedDiagArray[WARPSINBLOCK - 1]; // Tablica do wymiany zmiennych diagonalnych w danym bloku
+	__shared__ uint32_t sharedDiagArray[WARPSINBLOCK - 1]; // A table for exchanging diagonal variables in a given block
 
 	if (threadIdx.x + blockIdx.x * blockDim.x < s2Len + 1)
 	{
 		uint32_t Xcol[ALPHLEN];
-		char s1c, s2c; // s1c - litera iteracji, s2c - litera w danej kolumnie
+		char s1c, s2c; // s1c - letter of iteration, s2c - letter in the given column
 		uint32_t foundVal = threadIdx.x + blockDim.x * blockIdx.x, prevVal = threadIdx.x + blockDim.x * blockIdx.x, diagVal, x;
 
-		// diagVal - to wartość D[i-1,j-1], dla aktualnej iteracji (wartość po przekątnej w tabeli)
-		// prevVal - to wartość D[i-1,j], dla aktualnej iteracji (wartość o jeden wyżej w tabeli)
-		// foundVal - aktualnie znaleziona wartość dla D[i,j]
+		// diagVal - D[i-1,j-1] value, for the current iteration (diagonal value in matrix)
+		// prevVal - D[i-1,j] value, for the current iteration (upper value in matrix)
+		// foundVal - currently found value for D[i,j]
 
-		// Pobranie litery (odpowiadającej kolumnie), z której będzie korzystał wątek w algorytmie
+		// Getting the letter (corresponding to the column) that the thread will use in the algorithm
 		if (threadIdx.x + blockDim.x * blockIdx.x != 0)
 			s2c = s2[threadIdx.x + blockDim.x * blockIdx.x - 1];
-		// Pobranie całej kolumny tablicy X dla każdego wątku (bo jeden wątek będzie tylko korzystał z tej samej "swojej" kolumny w tablicy X)
+		// Fetching the entire column of matrix X for each thread (because one thread will only use the same "own" column in matrix X)
 		memcpy(Xcol, X + ALPHLEN * (threadIdx.x + blockDim.x * blockIdx.x), ALPHLEN * sizeof(uint32_t));
 
 		for (int i = 0; i < s1Len + 1; i++)
 		{
-			// Pobranie s1c dla aktualnej iteracji
+			// Fetching s1c for the current iteration
 			if (i > 0)
 				s1c = s1[i - 1];
 
 			x = Xcol[s1c - ALPHSTART];
 
-			// Wymiana zmiennych pomiędzy wątkami w warpie
+			// Exchange variables between threads in the warp
 			diagVal = __shfl_up_sync(0xffffffff, prevVal, 1);
 
-			// Pobranie zmiennych wymieninanych pomiędzy warpami
+			// Fetching variables exchanged between warps
 			if (threadIdx.x % WARPSIZE == 0 && threadIdx.x != 0)
 				diagVal = sharedDiagArray[(threadIdx.x / WARPSIZE) - 1];
-			// Pobranie zmiennych wymieninanych pomiędzy blokami
+			// Fetching variables exchanged between blocks
 			else if (threadIdx.x == 0 && blockIdx.x != 0)
 				diagVal = globalDiagArray[blockIdx.x - 1];
 
@@ -925,16 +925,16 @@ __global__ void calculateD(uint32_t* D, uint32_t* X, char* s1, char* s2, const u
 			else
 				foundVal = 1 + Min(prevVal, diagVal, D[GetDInd(i - 1, x - 1, s2Len + 1)] + threadIdx.x + blockDim.x * blockIdx.x - 1 - x);
 
-			// Zapisanie wyniku do tablicy D
+			// Saving the result to D matrix
 			D[GetDInd(i, threadIdx.x + blockDim.x * blockIdx.x, s2Len + 1)] = foundVal;
 
-			// Zapisanie wartości znalezionej jako poprzednią, aby w następnej iteracji można ją było przekazać następnemu wątkowi
+			// Store the value found as the previous one so that it can be passed to the next thread in the next iteration
 			prevVal = foundVal;
 
-			// Zapisanie zmiennej do wymiany między warpami
+			// Saving a variable for exchange between warps
 			if (threadIdx.x % WARPSIZE == WARPSIZE - 1 && threadIdx.x != WARPSIZE * WARPSINBLOCK - 1)
 				sharedDiagArray[(threadIdx.x - (WARPSIZE - 1)) / WARPSIZE] = prevVal;
-			// Zapisanie zmiennej do wymiany między blokami
+			// Saving a variable for exchange between blocks
 			else if (threadIdx.x == WARPSIZE * WARPSINBLOCK - 1 && blockIdx.x != gridDim.x - 1)
 				globalDiagArray[blockIdx.x] = prevVal;
 
