@@ -59,7 +59,7 @@ __host__ Node* RetrievePath(uint32_t* D, uint32_t height, uint32_t width, char* 
 __host__ bool EasyCheck(uint32_t* hD, uint32_t* dD, uint32_t height, uint32_t width);
 __global__ void calculateX(uint32_t* X, char* s2, const uint32_t s2Len);
 __global__ void calculateD(uint32_t* D, uint32_t* X, char* s1, char* s2, const uint32_t s1Len, const uint32_t s2Len, uint32_t* globalDiagArray);
-__global__ void rozgrzewka(int i);
+__global__ void warmup(int i);
 __host__ void wordsLen(char* filepath, int* strLen1, int* strLen2);
 __host__ char* getLineFromFile(FILE* file, int strLen);
 __host__ void saveDToFile(uint32_t* dD, uint32_t* hD, char* s1, char* s2, const uint32_t s1Len, const uint32_t s2Len, char* cpu_outputfilepath, char* gpu_outputfilepath);
@@ -165,7 +165,7 @@ int main(int argc, char* argv[])
 		return 0;
 	}
 
-	printf("\nDlugosci slow s1: %d, s2: %d\n", s1Len, s2Len);
+	printf("\nLength of words s1: %d, s2: %d\n", s1Len, s2Len);
 
 	uint32_t* D_CPU = (uint32_t*)malloc(sizeof(uint32_t) * (s1Len + 1) * (s2Len + 1));
 	if (D_CPU == NULL)
@@ -204,11 +204,11 @@ int main(int argc, char* argv[])
 	}
 
 	// Warm up function to ensure the GPU is ready for calculations
-	rozgrzewka <<<1, 32 >>> (1);
+	warmup <<<1, 32 >>> (1);
 	cudaStatus = cudaDeviceSynchronize();
 	if (cudaStatus != cudaSuccess)
 	{
-		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching rozgrzewka!\n", cudaStatus);
+		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching warmup!\n", cudaStatus);
 		goto Error;
 	}
 
@@ -225,12 +225,12 @@ int main(int argc, char* argv[])
 
 	// Checking if the D matrices calculated on CPU and GPU are the same
 	if (EasyCheck(D_CPU, D_GPU, s1Len + 1, s2Len + 1))
-		printf("Macierze D z CPU i GPU sa takie same :)\n");
+		printf("D matrices from CPU and GPU are the same.\n");
 	else
-		printf("Macierze D z CPU i GPU sa inne!\n");
+		printf("D matrices from CPU and GPU are the different.!\n");
 
-	printf("Wynik z CPU: %d\n", D_CPU[(s1Len + 1) * (s2Len + 1) - 1]);
-	printf("Wynik z GPU: %d\n", D_GPU[(s1Len + 1) * (s2Len + 1) - 1]);
+	printf("CPU result: %d\n", D_CPU[(s1Len + 1) * (s2Len + 1) - 1]);
+	printf("GPU result: %d\n", D_GPU[(s1Len + 1) * (s2Len + 1) - 1]);
 
 	// Extraction of transformations of string s1 from matrix calculated on the GPU
 	auto gpu_path_ts = high_resolution_clock::now();
@@ -245,7 +245,7 @@ int main(int argc, char* argv[])
 	{
 		if (mode != 0)
 		{
-			printf("Nie da sie zapisac pliku bez sciezki.\n");
+			printf("Cannot save the file woithout path.\n");
 			break;
 		}
 		auto save_to_file_ts = high_resolution_clock::now();
@@ -323,11 +323,11 @@ Error:
 }
 
 /**
- * Sprawdzenie, czy dane słowo ma same litery zawierające się w zdefiniowanym alfabecie, oraz przy okazji liczy jego długość.
+ * Checks if the word consists of valid characters (A-Z) and calculates the lenght of it.
  *
- * @param s - wskaźnik na sprawdzane słowo
+ * @param s - pointer to the word string.
  *
- * @return długość słowa
+ * @return length of the word if valid, 0 if invalid.
  */
 __host__ uint32_t checkWord(char* s)
 {
@@ -342,13 +342,13 @@ __host__ uint32_t checkWord(char* s)
 }
 
 /**
- * Zamienia indeks tablicy dwuwymiarowej na jednowymiarową.
+ * Conwerts two-dimensional indices (i, j) to a one-dimensional index for the D array.
  *
- * @param i - numer wiersza
- * @param j - numer kolumny
- * @param width - szerokość tablicy
+ * @param i - row index.
+ * @param j - column index.
+ * @param width - array width.
  *
- * @return indeks w tablicy jednowymiarowej
+ * @return index in the one-dimensional array D.
  */
 __host__ __device__ uint32_t GetDInd(uint32_t i, uint32_t j, uint32_t width)
 {
@@ -356,13 +356,13 @@ __host__ __device__ uint32_t GetDInd(uint32_t i, uint32_t j, uint32_t width)
 }
 
 /**
- * Oblicza najmniejszą wartość z trzech podanych.
+ * Returns the minimum value from three given numbers.
  *
- * @param num1 - pierwsza liczba
- * @param num2 - druga liczba
- * @param num3 - trzecia liczba
+ * @param num1 - first number.
+ * @param num2 - second number.
+ * @param num3 - thrid number.
  *
- * @return najmniejsza liczba z trzech
+ * @return lowest value among the three numbers.
  */
 __host__ __device__ uint32_t Min(uint32_t num1, uint32_t num2, uint32_t num3)
 {
@@ -374,13 +374,13 @@ __host__ __device__ uint32_t Min(uint32_t num1, uint32_t num2, uint32_t num3)
 }
 
 /**
- * Podstawowa implementacja algorytmu na CPU liczenia odległości Levenshteina.
+ * Basic CPU implementation of the Levenshtein distance algorithm.
  *
- * @param[in] s1 - wskaźnik na słowo s1
- * @param[in] s1Len - długość słowa s1
- * @param[in] s2 - wskaźnik na słowo s2
- * @param[in] s2Len - długość słowa s2
- * @param[out] D - tablica, w której zapisywany jest wynik
+ * @param[in] s1 - pointer to the first word (string s1).
+ * @param[in] s1Len - length of the first word s1.
+ * @param[in] s2 - pointer to the second word (string s2).
+ * @param[in] s2Len - length of the second word s2.
+ * @param[out] D - array storing the Levenshtein distance matrix.
  */
 __host__ void CPULevenshtein(char* s1, uint32_t s1Len, char* s2, uint32_t s2Len, uint32_t* D)
 {
@@ -401,13 +401,13 @@ __host__ void CPULevenshtein(char* s1, uint32_t s1Len, char* s2, uint32_t s2Len,
 }
 
 /**
- * Wypisuje tablice D na konsole.
+ * Prints the D matrix on the console.
  *
- * @param D - wskaźnik do tablicy D
- * @param height - wysokość tablicy D
- * @param width - szerokość tablicy D
- * @param s1 - wskaźnik na słowo s1
- * @param s2 - wskaźnik na słowo s2
+ * @param D - pointer to the D matrix.
+ * @param height - height of the D matrix.
+ * @param width - width of the D matrix.
+ * @param s1 - pointer to the first word s1.
+ * @param s2 - pointer to the second word s2.
  */
 __host__ void PrintD(uint32_t* D, uint32_t height, uint32_t width, char* s1, char* s2)
 {
@@ -450,12 +450,12 @@ __host__ void PrintD(uint32_t* D, uint32_t height, uint32_t width, char* s1, cha
 }
 
 /**
- * Wypisuje tablice X na konsole.
+ * Prints the X matrix on the console.
  *
- * @param X - wskaźnik do tablicy X
- * @param height - wysokość tablicy X
- * @param width - szerokość tablicy X
- * @param s2 - wskaźnik na słowo s2
+ * @param X - pointer to the X matrix.
+ * @param height - height of the X matrix.
+ * @param width - width of the X matrix.
+ * @param s2 - pointer to the second word s2.
  */
 __host__ void PrintX(uint32_t* X, uint32_t height, uint32_t width, char* s2)
 {
@@ -482,15 +482,15 @@ __host__ void PrintX(uint32_t* X, uint32_t height, uint32_t width, char* s2)
 }
 
 /**
- * Tworzy wynikową listę przekształceń zamian liter słowa s1, aby powstało s2 na podstawie tablicy D.
+ * Creates a linked list of operations to transform string s1 into string s2 based on the D matrix.
  *
- * @param D - wskaźnik do tablicy D
- * @param height - wysokość tablicy D
- * @param width - szerokość tablicy D
- * @param s1 - wskaźnik na słowo s1
- * @param s2 - wskaźnik na słowo s2
+ * @param D - pointer to the D matrix.
+ * @param height - height of the D matrix.
+ * @param width - width of the D matrix.
+ * @param s1 - pointer to the first word s1.
+ * @param s2 - pointer to the second word s2.
  *
- * @return wskaźnik na początek listy przekształceń
+ * @return pointer to the head of the linked list containing the operations.
  */
 __host__ Node* RetrievePath(uint32_t* D, uint32_t height, uint32_t width, char* s1, char* s2)
 {
@@ -552,14 +552,14 @@ __host__ Node* RetrievePath(uint32_t* D, uint32_t height, uint32_t width, char* 
 }
 
 /**
- * Sprawdza, czy tablice podane są identyczne.
+ * Checks if two arrays D are identical.
  *
- * @param hD - wskaźnik do pierwszej tablicy D
- * @param dD - wskaźnik do drugiej tablicy D
- * @param height - wysokość tablicy D
- * @param width - szerokość tablicy D
+ * @param hD - pointer to the first array D (host memory).
+ * @param dD - pointer to the second array D (device memory).
+ * @param height - height of the arrays D.
+ * @param width - width of the arrays D.
  *
- * @return wynik sprawdzania identyczności tablic
+ * @return true if the arrays are identical, false otherwise.
  */
 __host__ bool EasyCheck(uint32_t* hD, uint32_t* dD, uint32_t height, uint32_t width)
 {
@@ -576,20 +576,20 @@ __host__ bool EasyCheck(uint32_t* hD, uint32_t* dD, uint32_t height, uint32_t wi
 }
 
 /**
- * Tworzenie nowego węzła listy.
+ * Creates a new node for the linked list.
  *
- * @param ind - indeks, wpisany w Node
- * @param letter - litera, wpisana w Node
- * @param type - typ operacji, wpisany w Node
+ * @param ind - index of the letter.
+ * @param letter - letter to be stored in the node.
+ * @param type - type of operation (ADD, DEL, REPLACE).
  *
- * @return wskaźnik na nowo stworzony węzeł
+ * @return pointer to the newly created node.
  */
 __host__ Node* createNode(uint32_t ind, char letter, OperationType type)
 {
 	Node* newNode = (Node*)malloc(sizeof(Node));
 	if (!newNode)
 	{
-		printf("Error: alokacja pamięci przy tworzeniu node.\n");
+		printf("Memory allocation error when creating a node.\n");
 		exit(EXIT_FAILURE);
 	}
 	newNode->ind = ind;
@@ -600,12 +600,12 @@ __host__ Node* createNode(uint32_t ind, char letter, OperationType type)
 }
 
 /**
- * Dodanie elementu na początek listy.
+ * Add a new node to the front of the linked list.
  *
- * @param head - wskaźnik na wskaźnik na node z początkiem listy wynikowej
- * @param ind - indeks, wpisany w dodawanego Node
- * @param letter - litera, wpisana w dodawanego Node
- * @param type - typ operacji, wpisany w dodawanego Node
+ * @param head - pointer to the head of the linked list.
+ * @param ind - index of the letter to be added.
+ * @param letter - letter to be added to the node.
+ * @param type - type of operation (ADD, DEL, REPLACE).
  */
 __host__ void addToFrontList(Node** head, uint32_t ind, char letter, OperationType type)
 {
@@ -621,13 +621,13 @@ __host__ void addToFrontList(Node** head, uint32_t ind, char letter, OperationTy
 }
 
 /**
- * Dodanie elementu na koniec listy.
+ * Add a new node to the end of the linked list.
  *
- * @param tail - wskaźnik na wskaźnik na node z końcem listy wynikowej
- * @param head - wskaźnik na wskaźnik na node z początkiem listy wynikowej
- * @param ind - indeks, wpisany w dodawanego Node
- * @param letter - litera, wpisana w dodawanego Node
- * @param type - typ operacji, wpisany w dodawanego Node
+ * @param tail - pointer to the tail of the linked list.
+ * @param head - pointer to the head of the linked list.
+ * @param ind - index of the letter to be added.
+ * @param letter - letter to be added to the node.
+ * @param type - operation type (ADD, DEL, REPLACE).
  */
 __host__ void addToEndList(Node** tail, Node** head, uint32_t ind, char letter, OperationType type)
 {
@@ -644,9 +644,9 @@ __host__ void addToEndList(Node** tail, Node** head, uint32_t ind, char letter, 
 }
 
 /**
- * Wypisanie listy wynikowej na konsole.
+ * Writes the contents of the linked list to the console.
  *
- * @param head - wskaźnik na początek listy wynikowej
+ * @param head - pointer to the head of the linked list.
  */
 __host__ void printList(Node* head)
 {
@@ -672,9 +672,9 @@ __host__ void printList(Node* head)
 }
 
 /**
- * Zwolnienie pamięci zajętej przez listę wynikową.
+ * Frees the memory allocated for the linked list.
  *
- * @param head - wskaźnik na początek listy wynikowej
+ * @param head - pointer to the head of the linked list.
  */
 __host__ void freeList(Node* head)
 {
@@ -688,18 +688,18 @@ __host__ void freeList(Node* head)
 }
 
 /**
- * Funckja pomocnicza, agregująca główne wywołania w programie CUDA (alokacja pamięci w GPU, zapis danych do GPU, algorytm, odczyt wyników z GPU, zwolnienie pamięci w GPU)
- *
- * @param[in] s1 - wskaźnik do tablicy char pierwszego ze słów
- * @param[in] s2 - wskaźnik do tablicy char drugiego ze słów
- * @param[in] s1Len - długość słowa s1
- * @param[in] s2Len - długość słowa s2
- * @param[out] D - wskaźnik do tablicy wynikowej, gdzie funkcja zapisze D (wymiar: (s1Len + 1) * (s2Len + 1))
- * @param[out] gpu_prepare_time - wskaźnik na zmienną z czasem, w jakim przygotowywujemy GPU do wywołania kernela (obliczenie parametrów wywołania kernela + alokacja + kopiowanie)
- * @param[out] calculateD_time - wskaźnik na zmienną z czasem, w jakim wykonujemy funckję obliczania samej tablicy D (bez X)
- * @param[out] copy_to_h_time - wskaźnik na zmienną z czasem, w jakim kopiujemy dane z GPU do hosta
- * @param[out] calculateX_time - wskaźnik na zmienną z czasem, w jakim wykonujemy funckję obliczania samej tablicy X (bez D)
- * @return możliwy error, który zaszedł podczas "CUDA-owych" operacji
+ * Helper function that aggregates the main CUDA calls in the program (memory allocation on GPU, data transfer to GPU, algorithm execution, results reading from GPU, memory deallocation on GPU).
+ * 
+ * @param[in] s1 - pointer to the first word (string s1).
+ * @param[in] s2 - pointer to the second word (string s2).
+ * @param[in] s1Len - length of the first word s1.
+ * @param[in] s2Len - length of the second word s2.
+ * @param[out] D - pointer to the array storing the Levenshtein distance matrix.
+ * @param[out] gpu_prepare_time - pointer to a variable that stores the time taken to prepare the GPU.
+ * @param[out] calculateD_time - pointer to a variable that stores the time taken to calculate the D array on the GPU.
+ * @param[out] copy_to_h_time - pointer to a variable that stores the time taken to copy the results from GPU to host memory.
+ * @param[out] calculateX_time - pointer to a variable that stores the time taken to calculate the X array on the GPU.
+ * @return error code indicating the success or failure of the CUDA operations.
  */
 cudaError_t LevenshteinGPU(char* s1, char* s2, const uint32_t s1Len, const uint32_t s2Len, uint32_t* D, long long* gpu_prepare_time, long long* calculateD_time, long long* copy_to_h_time, long long* calculateX_time)
 {
@@ -835,11 +835,11 @@ Error:
 }
 
 /**
- * Wypełnia tablice X.
+ * Fills the X matrix with values based on the second word s2.
  *
- * @param X - wskaźnik do tablicy X w device
- * @param s2 - wskaźnik na słowo s2 w device
- * @param s2Len - długość słowa s2
+ * @param X - pointer to the X matrix in device memory.
+ * @param s2 - pointer to the second word s2 in device memory.
+ * @param s2Len - length of the second word s2.
  */
 __global__ void calculateX(uint32_t* X, char* s2, const uint32_t s2Len)
 {
@@ -863,15 +863,15 @@ __global__ void calculateX(uint32_t* X, char* s2, const uint32_t s2Len)
 }
 
 /**
- * Wypełnia tablice D.
+ * Fills the D matrix with values based on the Levenshtein distance algorithm.
  *
- * @param D - wskaźnik do tablicy D w device
- * @param X - wskaźnik do wypełnionej tablicy X w device
- * @param s1 - wskaźnik na słowo s1 w device
- * @param s2 - wskaźnik na słowo s2 w device
- * @param s1Len - długośc słowa s1
- * @param s2Len - długość słowa s2
- * @param globalDiagArray - wskaźnik do tablicy w pamięci globalnej, dzięki której będą przekazywane zmienne podczas działania programu między blokami (długość: ilość bloków)
+ * @param D - pointer to the D matrix in device memory.
+ * @param X - pointer to already filled X matrix in device memory.
+ * @param s1 - pointer to the first word s1 in device memory.
+ * @param s2 - pointer to the second word s2 in device memory.
+ * @param s1Len - length of the first word s1.
+ * @param s2Len - length of the second word s2.
+ * @param globalDiagArray - pointer to the global diagonal array used for exchanging diagonal values between blocks.
  */
 __global__ void calculateD(uint32_t* D, uint32_t* X, char* s1, char* s2, const uint32_t s1Len, const uint32_t s2Len, uint32_t* globalDiagArray)
 {
@@ -944,28 +944,28 @@ __global__ void calculateD(uint32_t* D, uint32_t* X, char* s1, char* s2, const u
 }
 
 /**
- * Funkcja rozgrzewająca GPU (nie robi nic ciekawego).
+ * Warmup kernel function that does nothing but is used to warm up the GPU before running the main algorithm.
  *
- * @param i - parametr ten nie ma znaczenia.
+ * @param i - no purpose integer parameter, used to ensure the kernel is executed.
  */
-__global__ void rozgrzewka(int i)
+__global__ void warmup(int i)
 {
 	int res = threadIdx.x * i;
 }
 
 /**
- * Zapisuje liste zamiany s1 na s2 do pliku. Plik powinien byc w formacie .txt, a dane są rozdzielane spacjami.
+ * Calculates the lengths of the words from a file and saves them in the provided pointers.
  *
- * @param filepath - nazwa/sciezka do pliku, w którym są słowa do policzenia
- * @param strLen1 - wskaźnik do zmiennej, w której zapiszemy długość słowa 1
- * @param strLen2 - wskaźnik do zmiennej, w której zapiszemy długość słowa 2
+ * @param filepath - file path to the text file containing the words.
+ * @param strLen1 - pointer to a variable where the length of word 1 will be saved.
+ * @param strLen2 - pointer to a variable where the length of word 2 will be saved.
  */
 __host__ void wordsLen(char* filepath, int* strLen1, int* strLen2)
 {
 	FILE* file = fopen(filepath, "r");
 	if (file == NULL)
 	{
-		fprintf(stderr, "Nie mozna otworzyc pliku ze slowami.\n");
+		fprintf(stderr, "Cant open the file with strings.\n");
 	}
 
 	int c;
@@ -992,10 +992,10 @@ __host__ void wordsLen(char* filepath, int* strLen1, int* strLen2)
 }
 
 /**
- * Pobiera jedną linie o dlugosci strLen z pliku .txt i zapisuje jej zawartość w zwracanej tabeli
+ * Saves a line from a file to a dynamically allocated string.
  *
- * @param file - wskaźnik do otwartego pliku
- * @param strLen - dlugosc linii do wczytania
+ * @param file - pointer to the file from which the line will be read.
+ * @param strLen - length of the line to be read.
  */
 __host__ char* getLineFromFile(FILE* file, int strLen)
 {
@@ -1004,36 +1004,36 @@ __host__ char* getLineFromFile(FILE* file, int strLen)
 	char c;
 
 	if (fgets(line, strLen + 1, file) == NULL)
-		printf("Blad przy wczytywaniu slow z pliku.\n");
+		printf("Error reading strings from file.\n");
 	fgetc(file);
 
 	return line;
 }
 
 /**
- * Zapisuje tablice dD oraz hD do pliku. Plik jest w formacie .txt, a dane są rozdzielane przecinkami.
+ * Saves the D matrices to a file in a specific format.
  *
- * @param dD - wskaźnik do pierwszej tablicy D
- * @param hD - wskaźnik do drugiej tablicy D
- * @param s1 - wskaźnik na słowo s1
- * @param s2 - wskaźnik na słowo s2
- * @param s1Len - długośc słowa s1
- * @param s2Len - długość słowa s2
- * @param cpu_outputfilepath - ścieżka do pliku, w którym będzie zapisany output tablicy hD
- * @param gpu_outputfilepath - ścieżka do pliku, w którym będzie zapisany output tablicy dD
+ * @param dD - pointer to the first array D (GPU calculated).
+ * @param hD - pointer to the second array D (CPU calculated).
+ * @param s1 - pointer to the first word s1.
+ * @param s2 - pointer to the second word s2.
+ * @param s1Len - length of the first word s1.
+ * @param s2Len - length of the second word s2.
+ * @param cpu_outputfilepath - output file path for the CPU results.
+ * @param gpu_outputfilepath - output file path for the GPU results.
  */
 __host__ void saveDToFile(uint32_t* dD, uint32_t* hD, char* s1, char* s2, const uint32_t s1Len, const uint32_t s2Len, char* cpu_outputfilepath, char* gpu_outputfilepath)
 {
 	FILE* cpu_outputfile = fopen(cpu_outputfilepath, "w");
 	if (cpu_outputfile == NULL)
 	{
-		fprintf(stderr, "Nie mozna otworzyc pliku do zapisu wynikow z cpu\n");
+		fprintf(stderr, "Cannot open file for saving CPU results\n");
 	}
 
 	FILE* gpu_outputfile = fopen(gpu_outputfilepath, "w");
 	if (gpu_outputfile == NULL)
 	{
-		fprintf(stderr, "Nie mozna otworzyc pliku do zapisu wynikow z gpu\n");
+		fprintf(stderr, "Cannot open file for saving GPU results\n");
 		fclose(cpu_outputfile);
 	}
 
@@ -1093,10 +1093,10 @@ __host__ void saveDToFile(uint32_t* dD, uint32_t* hD, char* s1, char* s2, const 
 }
 
 /**
- * Zapisuje liste zamiany s1 na s2 do pliku. Plik powinien byc w formacie .txt, a dane są rozdzielane spacjami.
+ * Saves the operations from the linked list to a file in a specific format.
  *
- * @param head - wskaźnik do pierwszego wezla listy wynikowej
- * @param result_file_path - ścieżka do pliku, w którym będzie zapisany output listy
+ * @param head - pointer to the head of the linked list containing the operations.
+ * @param result_file_path - file path where the operations will be saved.
  */
 __host__ void savePathToFile(Node* head, char* result_file_path)
 {
@@ -1104,7 +1104,7 @@ __host__ void savePathToFile(Node* head, char* result_file_path)
 	FILE* result_file = fopen(result_file_path, "w");
 	if (result_file == NULL)
 	{
-		fprintf(stderr, "Nie mozna otworzyc pliku do zapisu wynikow.\n");
+		fprintf(stderr, "Cannot open file for saving linked list results.\n");
 	}
 
 	while (current != NULL)
@@ -1133,12 +1133,12 @@ __host__ void savePathToFile(Node* head, char* result_file_path)
 }
 
 /**
- * Wypisuje na konsole jak powinno się uruchamiać program.
+ * Writes to the console how to use the program.
  */
 __host__ void howToUse()
 {
-	printf("Podano zle argumenty\n");
-	printf("Podstawowe wywolanie programu: s1_s2_txt_file_path txt_output_file_path\n");
-	printf("Sa jeszcze inne tryby pracy, dlatego w przypadku niejasnosci prosze zajrzec w README.md\n");
+	printf("Bad arguments were entered\n");
+	printf("Simple program call: s1_s2_txt_file_path txt_output_file_path\n");
+	printf("In case of advance modes please refer to README file\n");
 	printf("\n");
 }
