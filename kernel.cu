@@ -75,6 +75,13 @@ __host__ void freeList(Node* head);
 
 int main(int argc, char* argv[])
 {
+	// Declared up front: the error handling jumps to the end with goto, and C++ forbids
+	// jumping over initialized declarations (MSVC accepts it, gcc and clang do not).
+	high_resolution_clock::time_point gpu_ts;
+	high_resolution_clock::time_point gpu_te;
+	high_resolution_clock::time_point gpu_path_ts;
+	Node* GPU_result = NULL;
+	high_resolution_clock::time_point gpu_path_te;
 	cudaError_t cudaStatus;
 	long long cpu_time = 0, gpu_time = 0, gpu_calculateD_time = 0, gpu_prepare_time = 0, gpu_copy_to_h_time = 0, gpu_calculateX_time = 0, cpu_path_time = 0, gpu_path_time = 0, save_to_file_time = 0;
 	int mode = -1, print_mode = -1;
@@ -213,9 +220,9 @@ int main(int argc, char* argv[])
 	}
 
 	// Calculating D matrix on GPU
-	auto gpu_ts = high_resolution_clock::now();
+	gpu_ts = high_resolution_clock::now();
 	cudaStatus = LevenshteinGPU(s1, s2, s1Len, s2Len, D_GPU, &gpu_prepare_time, &gpu_calculateD_time, &gpu_copy_to_h_time, &gpu_calculateX_time);
-	auto gpu_te = high_resolution_clock::now();
+	gpu_te = high_resolution_clock::now();
 	gpu_time += duration_cast<microseconds> (gpu_te - gpu_ts).count();
 	if (cudaStatus != cudaSuccess)
 	{
@@ -233,9 +240,9 @@ int main(int argc, char* argv[])
 	printf("GPU result: %d\n", D_GPU[(s1Len + 1) * (s2Len + 1) - 1]);
 
 	// Extraction of transformations of string s1 from matrix calculated on the GPU
-	auto gpu_path_ts = high_resolution_clock::now();
-	Node* GPU_result = RetrievePath(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
-	auto gpu_path_te = high_resolution_clock::now();
+	gpu_path_ts = high_resolution_clock::now();
+	GPU_result = RetrievePath(D_GPU, s1Len + 1, s2Len + 1, s1, s2);
+	gpu_path_te = high_resolution_clock::now();
 	gpu_path_time += duration_cast<microseconds> (gpu_path_te - gpu_path_ts).count();
 
 	// Printing the results based on the selected print mode
@@ -290,17 +297,17 @@ int main(int argc, char* argv[])
 	}
 	}
 
-	std::cout << endl << "CPU time: " << setw(7) << 0.001 * cpu_time << " nsec" << endl;
-	std::cout << "Whole GPU time: " << setw(7) << 0.001 * gpu_time << " nsec" << endl;
-	std::cout << "GPU memory alloc + copy time: " << setw(7) << 0.001 * gpu_prepare_time << " nsec" << endl;
-	std::cout << "CalculateX time: " << setw(7) << 0.001 * gpu_calculateX_time << " nsec" << endl;
-	std::cout << "CalculateD time: " << setw(7) << 0.001 * gpu_calculateD_time << " nsec" << endl;
-	std::cout << "Algorithm(CalculateD + CalculateX) GPU time: " << setw(7) << 0.001 * gpu_calculateD_time + 0.001 * gpu_calculateX_time << " nsec" << endl;
-	std::cout << "Copy to host GPU time: " << setw(7) << 0.001 * gpu_copy_to_h_time << " nsec" << endl;
-	std::cout << "RetrievePath CPU time: " << setw(7) << 0.001 * cpu_path_time << " nsec" << endl;
-	std::cout << "RetrievePath GPU time: " << setw(7) << 0.001 * gpu_path_time << " nsec" << endl;
+	std::cout << endl << "CPU time: " << setw(7) << 0.001 * cpu_time << " ms" << endl;
+	std::cout << "Whole GPU time: " << setw(7) << 0.001 * gpu_time << " ms" << endl;
+	std::cout << "GPU memory alloc + copy time: " << setw(7) << 0.001 * gpu_prepare_time << " ms" << endl;
+	std::cout << "CalculateX time: " << setw(7) << 0.001 * gpu_calculateX_time << " ms" << endl;
+	std::cout << "CalculateD time: " << setw(7) << 0.001 * gpu_calculateD_time << " ms" << endl;
+	std::cout << "Algorithm(CalculateD + CalculateX) GPU time: " << setw(7) << 0.001 * gpu_calculateD_time + 0.001 * gpu_calculateX_time << " ms" << endl;
+	std::cout << "Copy to host GPU time: " << setw(7) << 0.001 * gpu_copy_to_h_time << " ms" << endl;
+	std::cout << "RetrievePath CPU time: " << setw(7) << 0.001 * cpu_path_time << " ms" << endl;
+	std::cout << "RetrievePath GPU time: " << setw(7) << 0.001 * gpu_path_time << " ms" << endl;
 	if (print_mode == 0)
-		std::cout << "Save results to file time: " << setw(7) << 0.001 * save_to_file_time << " nsec" << endl;
+		std::cout << "Save results to file time: " << setw(7) << 0.001 * save_to_file_time << " ms" << endl;
 
 	cudaStatus = cudaDeviceReset();
 	if (cudaStatus != cudaSuccess)
@@ -703,6 +710,16 @@ __host__ void freeList(Node* head)
  */
 cudaError_t LevenshteinGPU(char* s1, char* s2, const uint32_t s1Len, const uint32_t s2Len, uint32_t* D, long long* gpu_prepare_time, long long* calculateD_time, long long* copy_to_h_time, long long* calculateX_time)
 {
+	// Declared up front: the error handling jumps to the end with goto, and C++ forbids
+	// jumping over initialized declarations (MSVC accepts it, gcc and clang do not).
+	high_resolution_clock::time_point gpu_preapare_te;
+	high_resolution_clock::time_point gpu_calculateX_ts;
+	high_resolution_clock::time_point gpu_calculateX_te;
+	void* args[7];
+	high_resolution_clock::time_point gpu_calculateD_ts;
+	high_resolution_clock::time_point gpu_calculateD_te;
+	high_resolution_clock::time_point gpu_memory_back_ts;
+	high_resolution_clock::time_point gpu_memory_back_te;
 	uint32_t* d_X;
 	uint32_t* d_D;
 	char* d_s1, * d_s2;
@@ -722,7 +739,7 @@ cudaError_t LevenshteinGPU(char* s1, char* s2, const uint32_t s1Len, const uint3
 
 	if (blocks > deviceProp.multiProcessorCount)
 	{
-		printf("Za długie słowo s2 dla tego GPU.\n");
+		printf("The word s2 is too long for this GPU: it needs more thread blocks than the GPU has multiprocessors.\n");
 		goto Error;
 	}
 
@@ -776,7 +793,7 @@ cudaError_t LevenshteinGPU(char* s1, char* s2, const uint32_t s1Len, const uint3
 	}
 
 	cudaStatus = cudaMemcpy(d_s2, s2, s2Len * sizeof(char), cudaMemcpyHostToDevice);
-	auto gpu_preapare_te = high_resolution_clock::now();
+	gpu_preapare_te = high_resolution_clock::now();
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "s2 cudaMemcpy failed!");
@@ -785,11 +802,11 @@ cudaError_t LevenshteinGPU(char* s1, char* s2, const uint32_t s1Len, const uint3
 
 	*gpu_prepare_time = duration_cast<microseconds> (gpu_preapare_te - gpu_preapare_ts).count();
 
-	auto gpu_calculateX_ts = high_resolution_clock::now();
+	gpu_calculateX_ts = high_resolution_clock::now();
 	calculateX << <1, 32 >> > (d_X, d_s2, s2Len);
 
 	cudaStatus = cudaDeviceSynchronize();
-	auto gpu_calculateX_te = high_resolution_clock::now();
+	gpu_calculateX_te = high_resolution_clock::now();
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching calculateX!\n", cudaStatus);
@@ -798,25 +815,30 @@ cudaError_t LevenshteinGPU(char* s1, char* s2, const uint32_t s1Len, const uint3
 
 	*calculateX_time = duration_cast<microseconds> (gpu_calculateX_te - gpu_calculateX_ts).count();
 
-	void* args[] = { (void*)&d_D, (void*)&d_X, (void*)&d_s1, (void*)&d_s2, (void*)&s1Len, (void*)&s2Len, (void*)&d_globalDiagArray };
+	args[0] = (void*)&d_D; args[1] = (void*)&d_X; args[2] = (void*)&d_s1; args[3] = (void*)&d_s2; args[4] = (void*)&s1Len; args[5] = (void*)&s2Len; args[6] = (void*)&d_globalDiagArray;
 
 	// Initialize, then launch
-	auto gpu_calculateD_ts = high_resolution_clock::now();
-	cudaLaunchCooperativeKernel((void*)calculateD, blocks, threads, args);
-
-	cudaStatus = cudaDeviceSynchronize();
-	auto gpu_calculateD_te = high_resolution_clock::now();
+	gpu_calculateD_ts = high_resolution_clock::now();
+	cudaStatus = cudaLaunchCooperativeKernel((void*)calculateD, blocks, threads, args);
 	if (cudaStatus != cudaSuccess)
 	{
-		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
+		fprintf(stderr, "Cooperative launch of calculateD failed: %s\n", cudaGetErrorString(cudaStatus));
+		goto Error;
+	}
+
+	cudaStatus = cudaDeviceSynchronize();
+	gpu_calculateD_te = high_resolution_clock::now();
+	if (cudaStatus != cudaSuccess)
+	{
+		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching calculateD!\n", cudaStatus);
 		goto Error;
 	}
 
 	*calculateD_time = duration_cast<microseconds> (gpu_calculateD_te - gpu_calculateD_ts).count();
 
-	auto gpu_memory_back_ts = high_resolution_clock::now();
+	gpu_memory_back_ts = high_resolution_clock::now();
 	cudaStatus = cudaMemcpy(D, d_D, (s1Len + 1) * (s2Len + 1) * sizeof(uint32_t), cudaMemcpyDeviceToHost);
-	auto gpu_memory_back_te = high_resolution_clock::now();
+	gpu_memory_back_te = high_resolution_clock::now();
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "D cudaMemcpy failed!");
@@ -878,55 +900,66 @@ __global__ void calculateD(uint32_t* D, uint32_t* X, char* s1, char* s2, const u
 	grid_group grid = this_grid();
 	__shared__ uint32_t sharedDiagArray[WARPSINBLOCK - 1]; // A table for exchanging diagonal variables in a given block
 
-	if (threadIdx.x + blockIdx.x * blockDim.x < s2Len + 1)
+	const uint32_t col = threadIdx.x + blockIdx.x * blockDim.x; // column of D handled by this thread
+
+	// Threads past the last column have no work, but they must still take part in __shfl_up_sync
+	// (full mask) and grid.sync(), which require every thread of the warp / grid to reach them.
+	// Active columns form a prefix, so active threads only ever receive values from active ones.
+	const bool active = col < s2Len + 1;
+
+	uint32_t Xcol[ALPHLEN] = { 0 };
+	char s1c = ALPHSTART, s2c = ALPHSTART; // s1c - letter of iteration, s2c - letter in the given column
+	uint32_t foundVal = col, prevVal = col, diagVal, x = 0;
+
+	// diagVal - D[i-1,j-1] value, for the current iteration (diagonal value in matrix)
+	// prevVal - D[i-1,j] value, for the current iteration (upper value in matrix)
+	// foundVal - currently found value for D[i,j]
+
+	if (active)
 	{
-		uint32_t Xcol[ALPHLEN];
-		char s1c, s2c; // s1c - letter of iteration, s2c - letter in the given column
-		uint32_t foundVal = threadIdx.x + blockDim.x * blockIdx.x, prevVal = threadIdx.x + blockDim.x * blockIdx.x, diagVal, x;
-
-		// diagVal - D[i-1,j-1] value, for the current iteration (diagonal value in matrix)
-		// prevVal - D[i-1,j] value, for the current iteration (upper value in matrix)
-		// foundVal - currently found value for D[i,j]
-
 		// Getting the letter (corresponding to the column) that the thread will use in the algorithm
-		if (threadIdx.x + blockDim.x * blockIdx.x != 0)
-			s2c = s2[threadIdx.x + blockDim.x * blockIdx.x - 1];
+		if (col != 0)
+			s2c = s2[col - 1];
 		// Fetching the entire column of matrix X for each thread (because one thread will only use the same "own" column in matrix X)
-		memcpy(Xcol, X + ALPHLEN * (threadIdx.x + blockDim.x * blockIdx.x), ALPHLEN * sizeof(uint32_t));
+		memcpy(Xcol, X + ALPHLEN * col, ALPHLEN * sizeof(uint32_t));
+	}
 
-		for (int i = 0; i < s1Len + 1; i++)
+	for (int i = 0; i < s1Len + 1; i++)
+	{
+		// Fetching s1c and its X value for the current iteration (row 0 needs neither)
+		if (i > 0)
 		{
-			// Fetching s1c for the current iteration
-			if (i > 0)
-				s1c = s1[i - 1];
-
+			s1c = s1[i - 1];
 			x = Xcol[s1c - ALPHSTART];
+		}
 
-			// Exchange variables between threads in the warp
-			diagVal = __shfl_up_sync(0xffffffff, prevVal, 1);
+		// Exchange variables between threads in the warp
+		diagVal = __shfl_up_sync(0xffffffff, prevVal, 1);
 
-			// Fetching variables exchanged between warps
-			if (threadIdx.x % WARPSIZE == 0 && threadIdx.x != 0)
-				diagVal = sharedDiagArray[(threadIdx.x / WARPSIZE) - 1];
-			// Fetching variables exchanged between blocks
-			else if (threadIdx.x == 0 && blockIdx.x != 0)
-				diagVal = globalDiagArray[blockIdx.x - 1];
+		// Fetching variables exchanged between warps
+		if (threadIdx.x % WARPSIZE == 0 && threadIdx.x != 0)
+			diagVal = sharedDiagArray[(threadIdx.x / WARPSIZE) - 1];
+		// Fetching variables exchanged between blocks
+		else if (threadIdx.x == 0 && blockIdx.x != 0)
+			diagVal = globalDiagArray[blockIdx.x - 1];
 
-			grid.sync();
+		grid.sync();
 
+		if (active)
+		{
 			if (i == 0)
-				foundVal = threadIdx.x + blockDim.x * blockIdx.x;
-			else if (threadIdx.x + blockDim.x * blockIdx.x == 0)
+				foundVal = col;
+			else if (col == 0)
 				foundVal = i;
 			else if (s1c == s2c)
 				foundVal = diagVal;
 			else if (x == 0)
-				foundVal = 1 + Min(prevVal, diagVal, i + threadIdx.x + blockDim.x * blockIdx.x - 1);
+				foundVal = 1 + Min(prevVal, diagVal, i + col - 1);
 			else
-				foundVal = 1 + Min(prevVal, diagVal, D[GetDInd(i - 1, x - 1, s2Len + 1)] + threadIdx.x + blockDim.x * blockIdx.x - 1 - x);
+				foundVal = 1 + Min(prevVal, diagVal, D[GetDInd(i - 1, x - 1, s2Len + 1)] + col - 1 - x);
 
 			// Saving the result to D matrix
-			D[GetDInd(i, threadIdx.x + blockDim.x * blockIdx.x, s2Len + 1)] = foundVal;
+			D[GetDInd(i, col, s2Len + 1)] = foundVal;
 
 			// Store the value found as the previous one so that it can be passed to the next thread in the next iteration
 			prevVal = foundVal;
@@ -937,9 +970,9 @@ __global__ void calculateD(uint32_t* D, uint32_t* X, char* s1, char* s2, const u
 			// Saving a variable for exchange between blocks
 			else if (threadIdx.x == WARPSIZE * WARPSINBLOCK - 1 && blockIdx.x != gridDim.x - 1)
 				globalDiagArray[blockIdx.x] = prevVal;
-
-			grid.sync();
 		}
+
+		grid.sync();
 	}
 }
 
